@@ -1,7 +1,9 @@
 """
 Universal RPA - Hybrid Vision AI RPA Code & Selector Generator
 Google Gemini (클라우드 초고속) + Local Ollama (100% 무료 / 로컬 오프라인) 듀얼 엔진
-화면 스크린샷 + 자연어 프롬프트를 분석하여 최적의 Playwright / Windows UIA 셀렉터 및 파이썬 코드를 자동 생성
+- 1단계: 화면 이미지 (클립보드 붙여넣기 Ctrl+V / 직접 캡처 / 파일 열기)
+- 2단계: 대상 웹 URL 입력칸 (페이지 경로 및 비즈니스 맥락 제공)
+- 3단계: 자연어 요구사항 입력칸
 """
 
 import os
@@ -15,7 +17,7 @@ from typing import Dict, Any, Optional, Tuple, Callable, List
 import requests
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageGrab
 
 try:
     import pyautogui
@@ -28,20 +30,21 @@ class GeminiVisionAgent:
     """Google Gemini 멀티모달 비전 API 통신 매니저 (클라우드)"""
 
     SYSTEM_INSTRUCTION = """당신은 세계 최고 수준의 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
-사용자가 제공한 화면 스크린샷 이미지와 자연어 요구사항을 분석하여, 가장 견고하고 정확한 Playwright (웹) 또는 Windows UIA (데스크톱) 자동화 코드를 작성해야 합니다.
+사용자가 제공한 [화면 스크린샷 이미지], [대상 웹 URL], [자연어 요구사항]을 종합 분석하여, 가장 견고하고 정확한 Playwright (웹) 또는 Windows UIA (데스크톱) 자동화 코드를 작성해야 합니다.
 
 [작성 규칙]
-1. 시각적 위치 분석: 사용자가 지정한 입력창, 버튼, 테이블 그리드, 콤보박스, 체크박스의 시각적 위치와 주변 텍스트(라벨)를 정밀하게 파악하십시오.
-2. 셀렉터 최적화:
+1. URL 연계: 대상 URL이 제공된 경우, 스크립트 시작 부분에 `page.goto("{target_url}")` 및 `page.wait_for_load_state("domcontentloaded")` 네비게이션 코드를 반드시 포함하십시오.
+2. 시각적 위치 분석: 사용자가 지정한 입력창, 버튼, 테이블 그리드, 콤보박스, 체크박스의 시각적 위치와 주변 텍스트(라벨)를 정밀하게 파악하십시오.
+3. 셀렉터 최적화:
    - Playwright: placeholder, role, text, label 연계 locator (예: page.locator("div:has(> label:has-text('계약번호')) input"), page.locator("button:has-text('조회')"), page.locator(".ag-row").first.dblclick())
    - 윈도우 앱: AutomationId, Name, ClassName 기반 uiautomation 코드
-3. 코드 스타일: 즉시 실행 가능한 완성형 파이썬 코드로 작성하고, 핵심 셀렉터 추출 이유를 주석으로 친절히 설명하십시오.
-4. 응답 포맷: 순수 파이썬 코드 블록(```python ... ```)과 함께 하단에 [추출된 셀렉터 분석 요약]을 첨부하십시오.
+4. 코드 스타일: 즉시 복사해서 실행할 수 있는 완성형 파이썬 코드로 작성하고, 핵심 셀렉터 추출 이유를 주석으로 친절히 설명하십시오.
+5. 응답 포맷: 순수 파이썬 코드 블록(```python ... ```)과 함께 하단에 [추출된 셀렉터 분석 요약]을 첨부하십시오.
 """
 
     @classmethod
     def call_gemini_vision(cls, api_key: str, image_path: str, user_prompt: str,
-                           model: str = "gemini-2.5-flash", page_html: str = "") -> Tuple[str, str]:
+                           target_url: str = "", model: str = "gemini-2.5-flash", page_html: str = "") -> Tuple[str, str]:
         if not api_key:
             raise ValueError("Google Gemini API Key가 설정되지 않았습니다.")
 
@@ -57,6 +60,14 @@ class GeminiVisionAgent:
         elif image_path.lower().endswith(".webp"):
             mime_type = "image/webp"
 
+        prompt_text = ""
+        if target_url:
+            prompt_text += f"### [대상 웹페이지 URL / 라우트]\n{target_url}\n\n"
+        prompt_text += f"### [자연어 자동화 요구사항]\n{user_prompt}\n\n"
+        if page_html:
+            prompt_text += f"### [참조 HTML/DOM 구조 스니펫]\n{page_html[:3000]}\n\n"
+        prompt_text += "위 화면 스크린샷과 URL, 요구사항을 바탕으로 최적의 셀렉터와 파이썬 Playwright RPA 코드를 작성해 주십시오."
+
         parts = [
             {
                 "inline_data": {
@@ -65,9 +76,7 @@ class GeminiVisionAgent:
                 }
             },
             {
-                "text": f"### [자연어 자동화 요구사항]\n{user_prompt}\n\n"
-                        f"{f'### [참조 HTML/DOM 구조 스니펫]\n{page_html[:3000]}' if page_html else ''}\n"
-                        f"위 화면 스크린샷과 요구사항을 바탕으로 최적의 셀렉터와 파이썬 Playwright RPA 코드를 작성해 주십시오."
+                "text": prompt_text
             }
         ]
 
@@ -115,12 +124,11 @@ class OllamaVisionAgent:
     """로컬 Ollama 멀티모달 비전 API 통신 매니저 (100% 무료 / 오프라인)"""
 
     SYSTEM_INSTRUCTION = """당신은 세계 최고 수준의 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
-제공된 화면 스크린샷 이미지와 요구사항을 분석하여, 가장 견고하고 정확한 Playwright (웹) 또는 Windows UIA 자동화 코드를 작성하십시오.
+제공된 화면 스크린샷 이미지와 대상 URL, 요구사항을 분석하여, 가장 견고하고 정확한 Playwright (웹) 또는 Windows UIA 자동화 코드를 작성하십시오.
 반드시 실행 가능한 파이썬 코드를 ```python ... ``` 블록으로 감싸서 출력하십시오."""
 
     @classmethod
     def list_installed_models(cls, ollama_url: str = "http://localhost:11434") -> List[str]:
-        """Ollama에 설치된 모델 목록 조회 (비전 모델 우선 정렬)"""
         try:
             r = requests.get(f"{ollama_url.rstrip('/')}/api/tags", timeout=3)
             if r.status_code == 200:
@@ -137,25 +145,24 @@ class OllamaVisionAgent:
         return ["qwen3-vl:4b", "llama3.2-vision", "llava", "qwen2.5:7b"]
 
     @classmethod
-    def call_ollama_vision(cls, ollama_url: str, model: str, image_path: str, user_prompt: str) -> Tuple[str, str]:
-        """로컬 Ollama /api/generate 엔드포인트 호출"""
+    def call_ollama_vision(cls, ollama_url: str, model: str, image_path: str,
+                           user_prompt: str, target_url: str = "") -> Tuple[str, str]:
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"이미지 파일을 찾을 수 없습니다: {image_path}")
 
         with open(image_path, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-        full_prompt = f"""{cls.SYSTEM_INSTRUCTION}
-
-[사용자 자연어 요구사항]
-{user_prompt}
-
-위 화면 스크린샷에서 타겟 요소를 찾아 최적의 Playwright 셀렉터와 파이썬 실행 코드를 작성해 주십시오."""
+        prompt_body = f"{cls.SYSTEM_INSTRUCTION}\n\n"
+        if target_url:
+            prompt_body += f"[대상 웹페이지 URL]\n{target_url}\n\n"
+        prompt_body += f"[사용자 자연어 요구사항]\n{user_prompt}\n\n"
+        prompt_body += "위 화면 스크린샷에서 타겟 요소를 찾아 최적의 Playwright 셀렉터와 파이썬 실행 코드를 작성해 주십시오."
 
         url = f"{ollama_url.rstrip('/')}/api/generate"
         payload = {
             "model": model,
-            "prompt": full_prompt,
+            "prompt": prompt_body,
             "images": [img_b64],
             "stream": False,
             "options": {
@@ -196,8 +203,8 @@ class AIVisionModal(ctk.CTkToplevel):
         self.on_add_to_bot = on_add_to_bot
 
         self.title("🤖 하이브리드 Vision AI 셀렉터 & RPA 코드 생성기 (Gemini + Ollama)")
-        self.geometry("980x800")
-        self.minsize(880, 660)
+        self.geometry("1020x840")
+        self.minsize(920, 680)
         self.attributes("-topmost", True)
 
         self.current_image_path: Optional[str] = None
@@ -207,12 +214,15 @@ class AIVisionModal(ctk.CTkToplevel):
         self._load_saved_configs()
         self._on_engine_changed(self.seg_engine.get())
 
+        # 전역 단축키 (Ctrl+V 로 어디서든 클립보드 이미지 즉시 붙여넣기)
+        self.bind("<Control-v>", lambda e: self._paste_from_clipboard())
+        self.bind("<Control-V>", lambda e: self._paste_from_clipboard())
+
     def _build_ui(self):
         # 1. 상단 AI 엔진 선택 및 설정 바
         top_ctrl = ctk.CTkFrame(self, corner_radius=6)
         top_ctrl.pack(fill="x", padx=10, pady=(10, 6))
 
-        # 엔진 전환 세그먼트 (Gemini vs Ollama)
         ctk.CTkLabel(top_ctrl, text="AI 엔진:", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(10, 4), pady=8)
         self.seg_engine = ctk.CTkSegmentedButton(
             top_ctrl, values=["☁️ Google Gemini (초고속)", "🦙 Local Ollama (100% 무료)"],
@@ -222,16 +232,13 @@ class AIVisionModal(ctk.CTkToplevel):
         self.seg_engine.pack(side="left", padx=(0, 12), pady=6)
         self.seg_engine.set("☁️ Google Gemini (초고속)")
 
-        # 엔진별 동적 설정 영역
         self.engine_conf_frame = ctk.CTkFrame(top_ctrl, fg_color="transparent")
         self.engine_conf_frame.pack(side="left", fill="x", expand=True, padx=4)
 
-        # ---------------------------------------------------------------------
         # [A] Gemini 설정 위젯들
-        # ---------------------------------------------------------------------
         self.f_gemini = ctk.CTkFrame(self.engine_conf_frame, fg_color="transparent")
         ctk.CTkLabel(self.f_gemini, text="Key:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
-        self.ent_api_key = ctk.CTkEntry(self.f_gemini, height=28, width=200, placeholder_text="Gemini API Key", show="*")
+        self.ent_api_key = ctk.CTkEntry(self.f_gemini, height=28, width=210, placeholder_text="Gemini API Key", show="*")
         self.ent_api_key.pack(side="left", padx=(0, 4))
 
         btn_toggle_key = ctk.CTkButton(self.f_gemini, text="👁", width=28, height=28, fg_color="#444444", command=self._toggle_key_visibility)
@@ -245,9 +252,7 @@ class AIVisionModal(ctk.CTkToplevel):
         self.cbo_gemini_model.pack(side="left")
         self.cbo_gemini_model.set("gemini-2.5-flash")
 
-        # ---------------------------------------------------------------------
         # [B] Ollama 설정 위젯들
-        # ---------------------------------------------------------------------
         self.f_ollama = ctk.CTkFrame(self.engine_conf_frame, fg_color="transparent")
         ctk.CTkLabel(self.f_ollama, text="URL:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
         self.ent_ollama_url = ctk.CTkEntry(self.f_ollama, height=28, width=170)
@@ -262,53 +267,74 @@ class AIVisionModal(ctk.CTkToplevel):
         self.cbo_ollama_model.pack(side="left")
         self.cbo_ollama_model.set("qwen3-vl:4b")
 
-        # 2. 본문 2분할 (좌: 화면 캡처 및 자연어 프롬프트 / 우: AI 생성 결과)
+        # 2. 본문 2분할 (좌: 3개 입력 칸 / 우: AI 생성 코드 뷰어)
         body = ctk.CTkFrame(self, corner_radius=6)
         body.pack(fill="both", expand=True, padx=10, pady=4)
-        body.grid_columnconfigure(0, weight=1, minsize=440)
-        body.grid_columnconfigure(1, weight=1, minsize=440)
+        body.grid_columnconfigure(0, weight=1, minsize=460)
+        body.grid_columnconfigure(1, weight=1, minsize=460)
         body.grid_rowconfigure(0, weight=1)
 
         # ---------------------------------------------------------------------
-        # 좌측: 화면 캡처 + 이미지 미리보기 + 자연어 입력
+        # 좌측: 3개 분리된 입력 칸 (이미지 지정 / URL 입력 / 자연어 입력)
         # ---------------------------------------------------------------------
         left_f = ctk.CTkFrame(body, corner_radius=6)
         left_f.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
 
-        l_head = ctk.CTkFrame(left_f, fg_color="transparent")
-        l_head.pack(fill="x", padx=8, pady=(8, 4))
-        ctk.CTkLabel(l_head, text="📸 1단계: 타겟 화면 캡처 / 이미지", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        # [섹션 1] 이미지 지정 칸 (클립보드 / 캡처 / 파일선택)
+        s1_head = ctk.CTkFrame(left_f, fg_color="transparent")
+        s1_head.pack(fill="x", padx=8, pady=(6, 2))
+        ctk.CTkLabel(s1_head, text="📸 [1/3] 타겟 화면 이미지 지정", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
 
         cap_bar = ctk.CTkFrame(left_f, fg_color="transparent")
-        cap_bar.pack(fill="x", padx=8, pady=(0, 6))
+        cap_bar.pack(fill="x", padx=8, pady=(0, 4))
+
+        btn_paste_clip = ctk.CTkButton(
+            cap_bar, text="📋 클립보드 붙여넣기 (Ctrl+V)", width=175, height=28,
+            fg_color="#00695c", hover_color="#004d40", font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._paste_from_clipboard
+        )
+        btn_paste_clip.pack(side="left", padx=(0, 4))
 
         btn_cap_screen = ctk.CTkButton(
-            cap_bar, text="📸 현재 화면 즉시 캡처", width=150, height=30,
-            fg_color="#1f6aa5", hover_color="#144d75", font=ctk.CTkFont(weight="bold"),
+            cap_bar, text="📸 즉시 캡처", width=95, height=28,
+            fg_color="#1f6aa5", hover_color="#144d75", font=ctk.CTkFont(size=11),
             command=self._capture_screen_now
         )
-        btn_cap_screen.pack(side="left", padx=(0, 4))
+        btn_cap_screen.pack(side="left", padx=2)
 
         btn_browse_img = ctk.CTkButton(
-            cap_bar, text="📁 이미지 파일 열기", width=130, height=30,
-            fg_color="#444444", hover_color="#333333", command=self._browse_image_file
+            cap_bar, text="📁 파일 선택", width=90, height=28,
+            fg_color="#444444", hover_color="#333333", font=ctk.CTkFont(size=11),
+            command=self._browse_image_file
         )
-        btn_browse_img.pack(side="left", padx=4)
+        btn_browse_img.pack(side="left", padx=2)
 
-        self.frame_preview = ctk.CTkFrame(left_f, height=180, fg_color="#181818", corner_radius=6)
-        self.frame_preview.pack(fill="x", padx=8, pady=4)
+        # 썸네일 미리보기 박스
+        self.frame_preview = ctk.CTkFrame(left_f, height=130, fg_color="#181818", corner_radius=6)
+        self.frame_preview.pack(fill="x", padx=8, pady=2)
         self.lbl_img_preview = ctk.CTkLabel(
-            self.frame_preview, text="[캡처된 이미지가 여기에 표시됩니다]",
+            self.frame_preview, text="[클립보드 복사(Win+Shift+S) 후 Ctrl+V 또는 캡처/파일 선택]",
             font=ctk.CTkFont(size=11), text_color="#777777"
         )
-        self.lbl_img_preview.pack(expand=True, pady=40)
+        self.lbl_img_preview.pack(expand=True, pady=25)
 
-        ctk.CTkLabel(
-            left_f, text="✍️ 2단계: AI에게 시킬 자연어 지시사항 입력",
-            font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6"
-        ).pack(anchor="w", padx=8, pady=(8, 2))
+        # [섹션 2] 대상 웹 URL 입력 칸
+        s2_head = ctk.CTkFrame(left_f, fg_color="transparent")
+        s2_head.pack(fill="x", padx=8, pady=(8, 2))
+        ctk.CTkLabel(s2_head, text="🌐 [2/3] 대상 웹페이지 URL (선택사항)", font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6").pack(side="left")
 
-        self.txt_prompt = ctk.CTkTextbox(left_f, height=120, font=ctk.CTkFont(size=12))
+        self.ent_target_url = ctk.CTkEntry(
+            left_f, height=28, placeholder_text="예: http://175.119.156.105:3000/contract/list"
+        )
+        self.ent_target_url.pack(fill="x", padx=8, pady=(0, 4))
+        self.ent_target_url.insert(0, "http://175.119.156.105:3000/contract/list")
+
+        # [섹션 3] 자연어 요구사항 입력 칸
+        s3_head = ctk.CTkFrame(left_f, fg_color="transparent")
+        s3_head.pack(fill="x", padx=8, pady=(6, 2))
+        ctk.CTkLabel(s3_head, text="✍️ [3/3] 자연어 자동화 요구사항 입력", font=ctk.CTkFont(size=12, weight="bold"), text_color="#81c784").pack(side="left")
+
+        self.txt_prompt = ctk.CTkTextbox(left_f, height=95, font=ctk.CTkFont(size=12))
         self.txt_prompt.pack(fill="both", expand=True, padx=8, pady=(0, 6))
         self.txt_prompt.insert(
             "1.0",
@@ -316,6 +342,7 @@ class AIVisionModal(ctk.CTkToplevel):
             "검색 결과 그리드(테이블)의 첫 번째 행을 더블클릭해서 상세 화면으로 이동해줘."
         )
 
+        # 실행 버튼
         self.btn_generate = ctk.CTkButton(
             left_f, text="⚡ AI 코드 생성 (Generate RPA Code)", height=38,
             fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(size=13, weight="bold"),
@@ -331,7 +358,7 @@ class AIVisionModal(ctk.CTkToplevel):
 
         r_head = ctk.CTkFrame(right_f, fg_color="transparent")
         r_head.pack(fill="x", padx=8, pady=(8, 4))
-        ctk.CTkLabel(r_head, text="💻 3단계: AI가 생성한 완성형 RPA 코드", font=ctk.CTkFont(size=12, weight="bold"), text_color="#81c784").pack(side="left")
+        ctk.CTkLabel(r_head, text="💻 AI가 생성한 완성형 RPA 코드", font=ctk.CTkFont(size=12, weight="bold"), text_color="#81c784").pack(side="left")
 
         self.txt_result_code = ctk.CTkTextbox(
             right_f, font=ctk.CTkFont(family="Consolas", size=12), fg_color="#181818"
@@ -381,8 +408,34 @@ class AIVisionModal(ctk.CTkToplevel):
                 self.cbo_ollama_model.set(models[0])
 
     # =========================================================================
-    # 화면 캡처 및 이미지 로딩
+    # [섹션 1] 클립보드 붙여넣기, 화면 캡처, 이미지 로드
     # =========================================================================
+    def _paste_from_clipboard(self):
+        """클립보드 이미지 가져오기 (Win+Shift+S 또는 PrtScn 캡처 후 Ctrl+V)"""
+        try:
+            clip_data = ImageGrab.grabclipboard()
+            if isinstance(clip_data, Image.Image):
+                temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "captures")
+                os.makedirs(temp_dir, exist_ok=True)
+                shot_path = os.path.join(temp_dir, f"clip_{int(time.time())}.png")
+                clip_data.save(shot_path, "PNG")
+
+                self.current_image_path = shot_path
+                self._display_preview_image(shot_path)
+                messagebox.showinfo("붙여넣기 성공", "📋 클립보드의 스크린샷 이미지가 성공적으로 로드되었습니다!")
+                return
+            elif isinstance(clip_data, list) and len(clip_data) > 0 and os.path.exists(clip_data[0]):
+                p = clip_data[0]
+                if p.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                    self.current_image_path = p
+                    self._display_preview_image(p)
+                    messagebox.showinfo("파일 로드 성공", f"📋 클립보드의 이미지 파일이 로드되었습니다:\n{p}")
+                    return
+
+            messagebox.showwarning("붙여넣기 안내", "클립보드에 복사된 이미지가 없습니다.\n먼저 화면 캡처(Win+Shift+S)를 수행하신 후 붙여넣어 주십시오.")
+        except Exception as e:
+            messagebox.showerror("오류", f"클립보드 이미지 처리 실패: {e}")
+
     def _capture_screen_now(self):
         self.withdraw()
         time.sleep(0.3)
@@ -396,7 +449,6 @@ class AIVisionModal(ctk.CTkToplevel):
                 shot = pyautogui.screenshot()
                 shot.save(shot_path)
             else:
-                from PIL import ImageGrab
                 shot = ImageGrab.grab()
                 shot.save(shot_path)
 
@@ -416,7 +468,7 @@ class AIVisionModal(ctk.CTkToplevel):
     def _display_preview_image(self, path: str):
         try:
             pil_img = Image.open(path)
-            pil_img.thumbnail((400, 160))
+            pil_img.thumbnail((380, 110))
             ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
 
             self.lbl_img_preview.configure(image=ctk_img, text="")
@@ -425,18 +477,19 @@ class AIVisionModal(ctk.CTkToplevel):
             self.lbl_img_preview.configure(text=f"미리보기 실패: {ex}")
 
     # =========================================================================
-    # AI 코드 생성 실행 (Gemini vs Ollama 자동 분기)
+    # AI 코드 생성 실행 (이미지 + URL + 프롬프트 3박자 결합)
     # =========================================================================
     def _start_ai_generation(self):
         if not self.current_image_path or not os.path.exists(self.current_image_path):
-            messagebox.showwarning("입력 확인", "[📸 현재 화면 캡처] 또는 [📁 이미지 파일 열기]로 타겟 화면을 먼저 지정해 주십시오.")
+            messagebox.showwarning("입력 확인", "[1단계: 타겟 화면 이미지]를 먼저 지정해 주십시오.\n(클립보드 붙여넣기, 즉시 캡처, 또는 파일 선택)")
             return
 
         prompt = self.txt_prompt.get("1.0", "end").strip()
         if not prompt:
-            messagebox.showwarning("입력 확인", "AI에게 요청할 자연어 지시사항을 입력해 주십시오.")
+            messagebox.showwarning("입력 확인", "[3단계: 자연어 자동화 요구사항]을 입력해 주십시오.")
             return
 
+        target_url = self.ent_target_url.get().strip()
         engine_choice = self.seg_engine.get()
 
         if "Gemini" in engine_choice:
@@ -447,7 +500,7 @@ class AIVisionModal(ctk.CTkToplevel):
             model = self.cbo_gemini_model.get()
             self.btn_generate.configure(text="⏳ Gemini 클라우드 분석 중... (약 1~2초)", state="disabled")
             self.txt_result_code.delete("1.0", "end")
-            self.txt_result_code.insert("1.0", f"// 🤖 Google Gemini ({model})에 화면 이미지와 요구사항을 전송하여 분석 중입니다...\n")
+            self.txt_result_code.insert("1.0", f"// 🤖 Google Gemini ({model})에 이미지와 URL({target_url or '미지정'}), 요구사항을 전송하여 분석 중입니다...\n")
 
             def _worker_gemini():
                 try:
@@ -455,6 +508,7 @@ class AIVisionModal(ctk.CTkToplevel):
                         api_key=api_key,
                         image_path=self.current_image_path,
                         user_prompt=prompt,
+                        target_url=target_url,
                         model=model
                     )
                     self.after(0, lambda c=code, f=full_text: self._on_generation_success(c, f, "Gemini"))
@@ -464,12 +518,11 @@ class AIVisionModal(ctk.CTkToplevel):
             threading.Thread(target=_worker_gemini, daemon=True).start()
 
         else:
-            # Ollama 로컬 실행
             ollama_url = self.ent_ollama_url.get().strip() or "http://localhost:11434"
             model = self.cbo_ollama_model.get()
             self.btn_generate.configure(text="⏳ Ollama 로컬 비전 추론 중... (약 3~6초)", state="disabled")
             self.txt_result_code.delete("1.0", "end")
-            self.txt_result_code.insert("1.0", f"// 🦙 Local Ollama ({model})에서 로컬 GPU로 화면 이미지를 추론 중입니다...\n// (100% 무료 / 사내 보안 유지 / 외부 유출 없음)\n")
+            self.txt_result_code.insert("1.0", f"// 🦙 Local Ollama ({model})에서 화면 이미지와 URL, 요구사항을 로컬 GPU로 추론 중입니다...\n// (100% 무료 / 사내 보안 유지 / 외부 유출 없음)\n")
 
             def _worker_ollama():
                 try:
@@ -477,7 +530,8 @@ class AIVisionModal(ctk.CTkToplevel):
                         ollama_url=ollama_url,
                         model=model,
                         image_path=self.current_image_path,
-                        user_prompt=prompt
+                        user_prompt=prompt,
+                        target_url=target_url
                     )
                     self.after(0, lambda c=code, f=full_text: self._on_generation_success(c, f, f"Ollama ({model})"))
                 except Exception as e:
@@ -544,6 +598,7 @@ class AIVisionModal(ctk.CTkToplevel):
     def _load_saved_configs(self):
         k = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
         ollama_u = "http://localhost:11434"
+        target_u = "http://175.119.156.105:3000/contract/list"
 
         if os.path.exists(self._CONFIG_FILE):
             try:
@@ -551,6 +606,7 @@ class AIVisionModal(ctk.CTkToplevel):
                     cfg = json.load(f)
                     k = k or cfg.get("gemini_api_key", "")
                     ollama_u = cfg.get("ollama_url", ollama_u)
+                    target_u = cfg.get("target_url", target_u)
             except Exception:
                 pass
 
@@ -561,6 +617,7 @@ class AIVisionModal(ctk.CTkToplevel):
                     cfg = json.load(f)
                     k = k or cfg.get("gemini_api_key", "")
                     ollama_u = cfg.get("ollama_url", ollama_u)
+                    target_u = cfg.get("erp_url", target_u)
             except Exception:
                 pass
 
@@ -569,6 +626,9 @@ class AIVisionModal(ctk.CTkToplevel):
         if ollama_u:
             self.ent_ollama_url.delete(0, "end")
             self.ent_ollama_url.insert(0, ollama_u)
+        if target_u:
+            self.ent_target_url.delete(0, "end")
+            self.ent_target_url.insert(0, target_u)
 
     def _save_api_key(self):
         k = self.ent_api_key.get().strip()
