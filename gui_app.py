@@ -56,13 +56,15 @@ class UBUSApp(ctk.CTk):
         self.tabview = ctk.CTkTabview(self, corner_radius=6)
         self.tabview.pack(fill="both", expand=True, padx=12, pady=12)
 
-        self.tab_run = self.tabview.add("🚀 작업 실행 대시보드")
-        self.tab_script = self.tabview.add("🐍 RPA 스크립트 에디터 (스니펫 지원)")
+        self.tab_run      = self.tabview.add("🚀 작업 실행 대시보드")
+        self.tab_script   = self.tabview.add("🐍 RPA 스크립트 에디터 (스니펫 지원)")
+        self.tab_desktop  = self.tabview.add("🖥️ 윈도우 앱 자동화 (Desktop)")
         self.tab_scenario = self.tabview.add("🧩 JSON 시나리오 뷰어")
-        self.tab_test = self.tabview.add("📄 PDF 추출 테스트")
+        self.tab_test     = self.tabview.add("📄 PDF 추출 테스트")
 
         self._build_run_tab()
         self._build_script_tab()
+        self._build_desktop_tab()
         self._build_scenario_tab()
         self._build_test_tab()
 
@@ -365,7 +367,276 @@ if __name__ == "__main__":
             self.txt_script_editor.insert("1.0", c)
 
     # -------------------------------------------------------------------------
-    # 탭 3: 시나리오 JSON 뷰어
+    # 탭 3: 윈도우 앱 자동화 (Desktop / UIA)
+    # -------------------------------------------------------------------------
+    def _build_desktop_tab(self):
+        """윈도우 앱 자동화 4대 Fallback 테스트 콘솔 탭"""
+        top_d = ctk.CTkFrame(self.tab_desktop, corner_radius=6)
+        top_d.pack(fill="x", padx=8, pady=6)
+
+        ctk.CTkLabel(
+            top_d, text="윈도우 앱 자동화 (UIA / PIXEL_MATCH / KVM)",
+            font=ctk.CTkFont(size=14, weight="bold")
+        ).pack(side="left", padx=12, pady=8)
+
+        body_d = ctk.CTkFrame(self.tab_desktop, corner_radius=6)
+        body_d.pack(fill="both", expand=True, padx=8, pady=4)
+        body_d.grid_columnconfigure(0, weight=0, minsize=320)
+        body_d.grid_columnconfigure(1, weight=1)
+        body_d.grid_rowconfigure(0, weight=1)
+
+        # 좌: 4대 Fallback 도구 패널
+        tool_panel = ctk.CTkFrame(body_d, corner_radius=6)
+        tool_panel.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
+
+        ctk.CTkLabel(
+            tool_panel, text="🛡️ 4단계 Fallback 자동화 도구",
+            font=ctk.CTkFont(size=13, weight="bold")
+        ).pack(anchor="w", padx=10, pady=(10, 4))
+
+        # FIND_WINDOW
+        fw_frame = ctk.CTkFrame(tool_panel, fg_color="#2b2b2b", corner_radius=6)
+        fw_frame.pack(fill="x", padx=8, pady=4)
+        ctk.CTkLabel(fw_frame, text="🔍 FIND_WINDOW — 창 찾기 및 포커스", font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6").pack(anchor="w", padx=8, pady=(6, 2))
+        ctk.CTkLabel(fw_frame, text="창 제목 키워드", font=ctk.CTkFont(size=11)).pack(anchor="w", padx=8)
+        self.entry_fw_title = ctk.CTkEntry(fw_frame, height=28, placeholder_text="예: 사내 ERP - 계약관리")
+        self.entry_fw_title.pack(fill="x", padx=8, pady=(2, 4))
+        ctk.CTkButton(fw_frame, text="창 찾기 및 포커스 이동", height=28, command=self._run_find_window).pack(fill="x", padx=8, pady=(0, 8))
+
+        # UIA_CONTROL
+        uia_frame = ctk.CTkFrame(tool_panel, fg_color="#2b2b2b", corner_radius=6)
+        uia_frame.pack(fill="x", padx=8, pady=4)
+        ctk.CTkLabel(uia_frame, text="🤖 UIA_CONTROL — pywinauto 컨트롤 조작", font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6").pack(anchor="w", padx=8, pady=(6, 2))
+
+        ctk.CTkLabel(uia_frame, text="프로세스명 또는 창 제목", font=ctk.CTkFont(size=11)).pack(anchor="w", padx=8)
+        self.entry_uia_wintitle = ctk.CTkEntry(uia_frame, height=28, placeholder_text="예: 계약관리")
+        self.entry_uia_wintitle.pack(fill="x", padx=8, pady=(2, 4))
+
+        uia_mid = ctk.CTkFrame(uia_frame, fg_color="transparent")
+        uia_mid.pack(fill="x", padx=8, pady=2)
+        uia_mid.grid_columnconfigure((0, 1), weight=1)
+
+        f_auto_id = ctk.CTkFrame(uia_mid, fg_color="transparent")
+        f_auto_id.grid(row=0, column=0, padx=(0, 4), sticky="ew")
+        ctk.CTkLabel(f_auto_id, text="AutomationId", font=ctk.CTkFont(size=11)).pack(anchor="w")
+        self.entry_uia_auto_id = ctk.CTkEntry(f_auto_id, height=28, placeholder_text="예: btnSave")
+        self.entry_uia_auto_id.pack(fill="x", pady=(2, 0))
+
+        f_ctrl_type = ctk.CTkFrame(uia_mid, fg_color="transparent")
+        f_ctrl_type.grid(row=0, column=1, padx=(4, 0), sticky="ew")
+        ctk.CTkLabel(f_ctrl_type, text="조작 유형", font=ctk.CTkFont(size=11)).pack(anchor="w")
+        self.cbo_uia_op = ctk.CTkComboBox(f_ctrl_type, values=["Click", "SetValue", "GetValue"], height=28)
+        self.cbo_uia_op.pack(fill="x", pady=(2, 0))
+
+        ctk.CTkLabel(uia_frame, text="입력값 (SetValue 시)", font=ctk.CTkFont(size=11)).pack(anchor="w", padx=8, pady=(4, 0))
+        self.entry_uia_value = ctk.CTkEntry(uia_frame, height=28, placeholder_text="예: {{계약번호}}")
+        self.entry_uia_value.pack(fill="x", padx=8, pady=(2, 4))
+        ctk.CTkButton(uia_frame, text="UIA 컨트롤 조작 실행", height=28, command=self._run_uia_control).pack(fill="x", padx=8, pady=(0, 8))
+
+        # PIXEL_MATCH
+        pm_frame = ctk.CTkFrame(tool_panel, fg_color="#2b2b2b", corner_radius=6)
+        pm_frame.pack(fill="x", padx=8, pady=4)
+        ctk.CTkLabel(pm_frame, text="🖼️ PIXEL_MATCH — 이미지 매칭 클릭", font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6").pack(anchor="w", padx=8, pady=(6, 2))
+        ctk.CTkLabel(pm_frame, text="버튼 이미지 파일 경로", font=ctk.CTkFont(size=11)).pack(anchor="w", padx=8)
+        pm_row = ctk.CTkFrame(pm_frame, fg_color="transparent")
+        pm_row.pack(fill="x", padx=8, pady=(2, 4))
+        self.entry_pm_img = ctk.CTkEntry(pm_row, height=28)
+        self.entry_pm_img.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ctk.CTkButton(pm_row, text="파일 선택", width=70, height=28,
+                      command=lambda: self._choose_image_file(self.entry_pm_img)).pack(side="right")
+
+        pm_conf_row = ctk.CTkFrame(pm_frame, fg_color="transparent")
+        pm_conf_row.pack(fill="x", padx=8, pady=2)
+        ctk.CTkLabel(pm_conf_row, text="유사도 임계값 (0.0~1.0)", font=ctk.CTkFont(size=11)).pack(side="left")
+        self.entry_pm_conf = ctk.CTkEntry(pm_conf_row, height=26, width=60)
+        self.entry_pm_conf.pack(side="right")
+        self.entry_pm_conf.insert(0, "0.85")
+        ctk.CTkButton(pm_frame, text="이미지 매칭 클릭 실행", height=28, command=self._run_pixel_match).pack(fill="x", padx=8, pady=(4, 8))
+
+        # KVM_INPUT
+        kvm_frame = ctk.CTkFrame(tool_panel, fg_color="#2b2b2b", corner_radius=6)
+        kvm_frame.pack(fill="x", padx=8, pady=4)
+        ctk.CTkLabel(kvm_frame, text="⌨️ KVM_INPUT — OS 마우스/키보드 직접 제어", font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6").pack(anchor="w", padx=8, pady=(6, 2))
+
+        kvm_mid = ctk.CTkFrame(kvm_frame, fg_color="transparent")
+        kvm_mid.pack(fill="x", padx=8, pady=2)
+        kvm_mid.grid_columnconfigure((0, 1, 2), weight=1)
+
+        f_x = ctk.CTkFrame(kvm_mid, fg_color="transparent"); f_x.grid(row=0, column=0, padx=(0, 2), sticky="ew")
+        ctk.CTkLabel(f_x, text="X 좌표", font=ctk.CTkFont(size=11)).pack(anchor="w")
+        self.entry_kvm_x = ctk.CTkEntry(f_x, height=28); self.entry_kvm_x.pack(fill="x"); self.entry_kvm_x.insert(0, "500")
+
+        f_y = ctk.CTkFrame(kvm_mid, fg_color="transparent"); f_y.grid(row=0, column=1, padx=2, sticky="ew")
+        ctk.CTkLabel(f_y, text="Y 좌표", font=ctk.CTkFont(size=11)).pack(anchor="w")
+        self.entry_kvm_y = ctk.CTkEntry(f_y, height=28); self.entry_kvm_y.pack(fill="x"); self.entry_kvm_y.insert(0, "300")
+
+        f_hotkey = ctk.CTkFrame(kvm_mid, fg_color="transparent"); f_hotkey.grid(row=0, column=2, padx=(2, 0), sticky="ew")
+        ctk.CTkLabel(f_hotkey, text="단축키", font=ctk.CTkFont(size=11)).pack(anchor="w")
+        self.entry_kvm_hotkey = ctk.CTkEntry(f_hotkey, height=28); self.entry_kvm_hotkey.pack(fill="x"); self.entry_kvm_hotkey.insert(0, "ctrl+s")
+
+        kvm_text_row = ctk.CTkFrame(kvm_frame, fg_color="transparent")
+        kvm_text_row.pack(fill="x", padx=8, pady=(4, 2))
+        ctk.CTkLabel(kvm_text_row, text="타이핑할 텍스트 (선택)", font=ctk.CTkFont(size=11)).pack(anchor="w")
+        self.entry_kvm_text = ctk.CTkEntry(kvm_text_row, height=28, placeholder_text="예: 2D2607007")
+        self.entry_kvm_text.pack(fill="x", pady=(2, 0))
+
+        kvm_btn_row = ctk.CTkFrame(kvm_frame, fg_color="transparent")
+        kvm_btn_row.pack(fill="x", padx=8, pady=(4, 8))
+        ctk.CTkButton(kvm_btn_row, text="좌표 클릭", width=80, height=28, command=self._run_kvm_click).pack(side="left", padx=(0, 4))
+        ctk.CTkButton(kvm_btn_row, text="단축키 입력", width=80, height=28, command=self._run_kvm_hotkey).pack(side="left", padx=4)
+        ctk.CTkButton(kvm_btn_row, text="텍스트 타이핑", width=90, height=28, command=self._run_kvm_type).pack(side="left", padx=4)
+
+        # UIA Live Inspector 버튼
+        ctk.CTkButton(
+            tool_panel, text="🔍 마우스 위치 UIA 요소 스캔 (Live Inspector)",
+            height=32, fg_color="#1f6aa5", hover_color="#144d75",
+            command=self._run_uia_inspector
+        ).pack(fill="x", padx=8, pady=8)
+
+        # 우: 실행 결과 콘솔
+        right_panel = ctk.CTkFrame(body_d, corner_radius=6)
+        right_panel.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
+
+        con_head = ctk.CTkFrame(right_panel, fg_color="transparent")
+        con_head.pack(fill="x", padx=8, pady=(6, 2))
+        ctk.CTkLabel(con_head, text="💻 윈도우 앱 자동화 실행 결과", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+        ctk.CTkButton(con_head, text="로그 지우기", width=70, height=22, font=ctk.CTkFont(size=10),
+                      command=lambda: self.txt_desktop_console.delete("1.0", "end")).pack(side="right")
+
+        self.txt_desktop_console = ctk.CTkTextbox(right_panel, font=ctk.CTkFont(family="Consolas", size=12), fg_color="#181818")
+        self.txt_desktop_console.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.txt_desktop_console.insert("1.0", "=== 윈도우 앱 자동화 콘솔 ===\n좌측 도구 패널에서 각 Fallback 단계를 개별 테스트하십시오.\n\n")
+
+    def _log_desktop(self, msg: str):
+        def _append():
+            self.txt_desktop_console.insert("end", msg + "\n")
+            self.txt_desktop_console.see("end")
+        self.after(0, _append)
+
+    def _run_find_window(self):
+        title_kw = self.entry_fw_title.get().strip()
+        if not title_kw:
+            return
+        def _worker():
+            try:
+                import win32gui, win32con
+                results = []
+                def _cb(hwnd, _):
+                    if title_kw in win32gui.GetWindowText(hwnd) and win32gui.IsWindowVisible(hwnd):
+                        results.append((hwnd, win32gui.GetWindowText(hwnd)))
+                win32gui.EnumWindows(_cb, None)
+                if results:
+                    hwnd, title = results[0]
+                    win32gui.ShowWindow(hwnd, win32con.SW_MAXIMIZE)
+                    win32gui.SetForegroundWindow(hwnd)
+                    self._log_desktop(f"✅ 창 포커스 이동 완료: [{title}] (hwnd={hwnd})")
+                else:
+                    self._log_desktop(f"⚠️ 창을 찾지 못했습니다: '{title_kw}'")
+            except ImportError:
+                self._log_desktop("❌ pywin32가 설치되지 않았습니다. pip install pywin32")
+            except Exception as e:
+                self._log_desktop(f"❌ 오류: {e}")
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _run_uia_control(self):
+        win_title = self.entry_uia_wintitle.get().strip()
+        auto_id   = self.entry_uia_auto_id.get().strip()
+        op_type   = self.cbo_uia_op.get()
+        value     = self.entry_uia_value.get().strip()
+        def _worker():
+            try:
+                from pywinauto import Application
+                app = Application(backend="uia").connect(title_re=f".*{win_title}.*")
+                win = app.top_window()
+                ctrl = win.child_window(auto_id=auto_id) if auto_id else win
+                if op_type == "Click":
+                    ctrl.click_input()
+                    self._log_desktop(f"✅ UIA Click 완료: auto_id={auto_id}")
+                elif op_type == "SetValue":
+                    ctrl.set_edit_text(value)
+                    self._log_desktop(f"✅ UIA SetValue 완료: auto_id={auto_id}, value={value}")
+                elif op_type == "GetValue":
+                    text = ctrl.window_text()
+                    self._log_desktop(f"✅ UIA GetValue: auto_id={auto_id}, text={text}")
+            except ImportError:
+                self._log_desktop("❌ pywinauto가 설치되지 않았습니다. pip install pywinauto")
+            except Exception as e:
+                self._log_desktop(f"❌ UIA 오류: {e}")
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _choose_image_file(self, entry_widget):
+        path = filedialog.askopenfilename(filetypes=[("이미지 파일", "*.png *.jpg *.bmp")])
+        if path:
+            entry_widget.delete(0, "end")
+            entry_widget.insert(0, path)
+
+    def _run_pixel_match(self):
+        img_path   = self.entry_pm_img.get().strip()
+        confidence = float(self.entry_pm_conf.get().strip() or "0.85")
+        def _worker():
+            try:
+                import pyautogui
+                pos = pyautogui.locateOnScreen(img_path, confidence=confidence, grayscale=True)
+                if pos:
+                    pyautogui.click(pos)
+                    self._log_desktop(f"✅ PIXEL_MATCH 클릭 완료: {pos}")
+                else:
+                    self._log_desktop(f"⚠️ 이미지를 화면에서 찾지 못했습니다: {img_path}")
+            except ImportError:
+                self._log_desktop("❌ pyautogui가 설치되지 않았습니다. pip install pyautogui")
+            except Exception as e:
+                self._log_desktop(f"❌ PIXEL_MATCH 오류: {e}")
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _run_kvm_click(self):
+        try:
+            x, y = int(self.entry_kvm_x.get()), int(self.entry_kvm_y.get())
+            import pyautogui; pyautogui.click(x, y)
+            self._log_desktop(f"✅ KVM 좌표 클릭 완료: ({x}, {y})")
+        except Exception as e:
+            self._log_desktop(f"❌ KVM 클릭 오류: {e}")
+
+    def _run_kvm_hotkey(self):
+        try:
+            hotkey = self.entry_kvm_hotkey.get().strip()
+            import pyautogui; pyautogui.hotkey(*hotkey.split("+"))
+            self._log_desktop(f"✅ KVM 단축키 입력 완료: {hotkey}")
+        except Exception as e:
+            self._log_desktop(f"❌ KVM 단축키 오류: {e}")
+
+    def _run_kvm_type(self):
+        try:
+            text = self.entry_kvm_text.get().strip()
+            import pyautogui; pyautogui.typewrite(text, interval=0.05)
+            self._log_desktop(f"✅ KVM 타이핑 완료: {text}")
+        except Exception as e:
+            self._log_desktop(f"❌ KVM 타이핑 오류: {e}")
+
+    def _run_uia_inspector(self):
+        def _worker():
+            try:
+                import win32api
+                from pywinauto import Desktop
+                x, y = win32api.GetCursorPos()
+                el = Desktop(backend="uia").from_point(x, y)
+                info = {
+                    "control_type":  el.element_info.control_type,
+                    "automation_id": el.element_info.automation_id,
+                    "name":          el.element_info.name,
+                    "class_name":    el.element_info.class_name,
+                    "rect":          str(el.element_info.rectangle),
+                }
+                self._log_desktop(f"✅ UIA 스캔 결과 (좌표 {x},{y}):")
+                for k, v in info.items():
+                    self._log_desktop(f"   {k}: {v}")
+            except ImportError:
+                self._log_desktop("❌ pywinauto 또는 pywin32가 설치되지 않았습니다.")
+            except Exception as e:
+                self._log_desktop(f"❌ UIA 스캔 오류: {e}")
+        threading.Thread(target=_worker, daemon=True).start()
+
+    # -------------------------------------------------------------------------
+    # 탭 4: 시나리오 JSON 뷰어
     # -------------------------------------------------------------------------
     def _build_scenario_tab(self):
         top_sc = ctk.CTkFrame(self.tab_scenario, corner_radius=6)

@@ -1,6 +1,38 @@
 # RELEASE_NOTES.md
 
-## [v1.0.0.Build.1] - 2026-08-21 15:00
+## [v1.1.0.Build.2] - 2026-08-21 15:05
+
+### 🖥️ [ImageScan 프로젝트 이식] 윈도우 앱 자동화 4단계 Fallback 아키텍처 완전 탑재
+
+#### 신규 기능
+
+1. **스니펫 라이브러리 전면 확장 (8개 카테고리)**:
+   - `🖥️ 윈도우 앱 자동화` 카테고리 신규 추가
+   - `FIND_WINDOW`: 창 제목 키워드로 윈도우 앱 창 찾기 및 포커스 이동 (`pywin32`)
+   - `UIA_CONTROL`: `pywinauto` AutomationId 기반 컨트롤 클릭/입력/값 읽기
+   - `PIXEL_MATCH`: `pyautogui.locateOnScreen` 이미지 매칭 클릭 (confidence 설정)
+   - `KVM_INPUT`: 절대 좌표 클릭, 단축키, 키보드 타이핑 OS 레벨 직접 제어
+   - `4단계 Fallback 완전 보호 체계`: CSS→UIA→PIXEL_MATCH→KVM 자동 강등 로직
+   - `JS DOM 강제 주입`: React/Vue 가상DOM 필드 강제 값 주입 (onChange 이벤트 포함)
+   - `중첩 루프 (LOOP_ROWS)`: 부모 루프 안에 서브 루프 계층형 중첩
+   - `창 Alias 딕셔너리`: 팝업창 핸들 Alias 관리로 다중 창 완벽 제어
+   - `iframe 전환`: iframe 내부 요소 직접 접근
+   - `엑셀 파일 읽기 (pandas)`, `JSON 파일 입출력`, `파일 이동`, `날짜/시간 변수` 추가
+
+2. **GUI 탭 신규 추가: `🖥️ 윈도우 앱 자동화 (Desktop)`**:
+   - FIND_WINDOW 도구: 창 제목 키워드 입력 → 창 찾기 및 포커스 이동
+   - UIA_CONTROL 도구: AutomationId 기반 Click / SetValue / GetValue 실행
+   - PIXEL_MATCH 도구: 이미지 파일 선택 → 화면 매칭 클릭 (confidence 슬라이더)
+   - KVM_INPUT 도구: 좌표 클릭 / 단축키 입력 / 텍스트 타이핑 버튼 3종
+   - UIA Live Inspector: 현재 마우스 위치의 윈도우 컨트롤 정보 실시간 스캔
+
+3. **requirements.txt 업데이트**:
+   - `pywinauto>=0.6.8`, `pyautogui>=0.9.54`, `pywin32>=306`, `pyperclip>=1.8.2`
+   - `pandas>=2.0.0`, `openpyxl>=3.1.0` 추가
+
+---
+
+
 
 ### 🚀 최초 공개 릴리즈 — 범용 RPA 스크립트 에디터 플랫폼
 

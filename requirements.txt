@@ -1,6 +1,39 @@
+# ====================================================
+# RPA Script Editor — 필수 패키지 목록
+# ====================================================
+
+# 웹 브라우저 자동화 (Playwright)
 playwright>=1.40.0
+
+# PDF OCR
 pymupdf>=1.23.0
+
+# HTTP 클라이언트 (Ollama AI 연동)
 httpx>=0.25.0
+
+# GUI 프레임워크
 customtkinter>=5.2.0
 pillow>=10.0.0
+
+# EXE 패키징
 pyinstaller>=6.0.0
+
+# ====================================================
+# 윈도우 앱 자동화 (ImageScan 이식 - Desktop Automation)
+# ====================================================
+
+# UIA_CONTROL: Windows UI Automation (pywinauto)
+pywinauto>=0.6.8
+
+# PIXEL_MATCH + KVM_INPUT: 이미지 매칭 & OS 마우스/키보드 제어
+pyautogui>=0.9.54
+
+# FIND_WINDOW + UIA Live Inspector: win32 API
+pywin32>=306
+
+# 클립보드 제어 (KVM 붙여넣기)
+pyperclip>=1.8.2
+
+# 데이터 처리 (엑셀 LOOP_ROWS)
+pandas>=2.0.0
+openpyxl>=3.1.0
