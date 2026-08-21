@@ -1,6 +1,24 @@
 # RELEASE_NOTES.md
 
-## [v2.0.0.Build.8] - 2026-08-21 16:20
+## [v2.1.0.Build.9] - 2026-08-21 16:38
+
+### 🔍 [신기능 탑재] Microsoft Windows UI Automation (UIA) Spy & 코드 생성기 내장
+
+1. **실시간 데스크톱 엘리먼트 스파이 (`windows_spy.py`) 탑재**:
+   - 윈도우 OS 프로그램(사내 ERP, WinForms, WPF, C#, VB, Delphi 등) 화면 위 마우스 호버 시 실시간 UIA 객체 분석
+   - 6대 핵심 속성 실시간 감지: `AutomationId`, `Name`, `ControlTypeName`, `ClassName`, `BoundingRectangle`, `ProcessName`
+   - **`F2` 키** 또는 `[🎯 캡처/동결]` 버튼으로 원하는 컨트롤의 속성을 즉시 동결 캡처
+2. **파이썬 UIA 및 4단계 Fallback 자동화 코드 생성기**:
+   - 동작 모드(클릭, 더블클릭, 텍스트 입력, 창 활성화) 선택 시 파이썬 UIA 제어 코드 자동 생성
+   - UIA 실패 시 2순위 윈도우 상대좌표 Fallback 코드 자동 포함
+3. **스튜디오 & 봇 에디터 원클릭 연동**:
+   - `[📋 에디터 커서에 코드 삽입]`: 파이썬 스크립트 에디터에 즉시 코드 주입
+   - `[🤖 봇 에디터에 모듈로 즉시 추가]`: 캡처한 윈도우 컨트롤을 봇 파이프라인의 신규 모듈 카드로 즉시 등록
+   - 상단 툴바에 보라색 **`[🔍 Windows UIA Spy]`** 원클릭 실행 버튼 배치
+
+---
+
+
 
 ### 🤖 [메이저 개편] 모듈 기반 2분할 봇 에디터 (Bot Builder) & 완성 봇 DB 저장소 구축
 

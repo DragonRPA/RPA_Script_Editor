@@ -157,26 +157,33 @@ class RecorderGUI(ctk.CTk):
         self.btn_run_script.pack(side="left", padx=8, pady=6)
 
         btn_codegen = ctk.CTkButton(
-            top_bar, text="Playwright 비주얼 인스펙터 열기", width=210, height=34,
+            top_bar, text="Playwright 인스펙터", width=160, height=34,
             fg_color="#1f6aa5", hover_color="#144d75", command=self.launch_codegen
         )
-        btn_codegen.pack(side="left", padx=6, pady=6)
+        btn_codegen.pack(side="left", padx=4, pady=6)
+
+        btn_win_spy = ctk.CTkButton(
+            top_bar, text="🔍 Windows UIA Spy", width=170, height=34,
+            fg_color="#4a148c", hover_color="#311b92", font=ctk.CTkFont(weight="bold"),
+            command=self.open_windows_spy
+        )
+        btn_win_spy.pack(side="left", padx=4, pady=6)
 
         btn_convert_to_bot = ctk.CTkButton(
-            top_bar, text="🧩 스크립트 ➔ 봇 모듈로 변환", width=200, height=34,
+            top_bar, text="🧩 스크립트 ➔ 봇 모듈로 변환", width=190, height=34,
             fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(weight="bold"),
             command=self._convert_script_to_bot_modules
         )
-        btn_convert_to_bot.pack(side="left", padx=6, pady=6)
+        btn_convert_to_bot.pack(side="left", padx=4, pady=6)
 
         btn_db_modules = ctk.CTkButton(
-            top_bar, text="☁️ DB 모듈 라이브러리", width=160, height=34,
+            top_bar, text="☁️ DB 모듈", width=110, height=34,
             fg_color="#6a1b9a", hover_color="#4a148c", command=self._open_db_modules_modal
         )
-        btn_db_modules.pack(side="left", padx=6, pady=6)
+        btn_db_modules.pack(side="left", padx=4, pady=6)
 
         btn_save_py = ctk.CTkButton(
-            top_bar, text="💾 파이썬 저장 (.py)", width=130, height=34,
+            top_bar, text="💾 파이썬 저장", width=110, height=34,
             fg_color="#3a3a3a", hover_color="#222222", command=self.save_python_file
         )
         btn_save_py.pack(side="right", padx=(4, 8), pady=6)
@@ -325,6 +332,13 @@ class RecorderGUI(ctk.CTk):
             command=self._open_load_bot_modal
         )
         btn_load_bot_db.pack(side="left", padx=4, pady=6)
+
+        btn_win_spy_bot = ctk.CTkButton(
+            bot_act_bar, text="🔍 Windows UIA Spy", width=150, height=32,
+            fg_color="#4a148c", hover_color="#311b92", font=ctk.CTkFont(weight="bold"),
+            command=self.open_windows_spy
+        )
+        btn_win_spy_bot.pack(side="left", padx=4, pady=6)
 
         btn_add_blank = ctk.CTkButton(
             bot_act_bar, text="+ 빈 모듈 추가", width=100, height=32,
@@ -1022,6 +1036,16 @@ class RecorderGUI(ctk.CTk):
         ctk.CTkButton(b_row, text="💾 DB 저장", fg_color="#6a1b9a", command=_save).pack(side="left", padx=4)
 
         _refresh()
+
+    def open_windows_spy(self):
+        """Microsoft Windows UIA Spy 창 열기"""
+        from windows_spy import open_windows_spy
+        open_windows_spy(
+            self,
+            on_insert=lambda code: self.insert_snippet_code(code),
+            on_add_bot=lambda mod: self._add_module_to_bot(mod)
+        )
+
 
 
 def main():
