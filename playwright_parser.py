@@ -1,6 +1,6 @@
 """
 Universal RPA Recorder - Advanced Code to Card Parser
-파이썬 스크립트(Playwright + WinApp + Custom Code)를 지능적으로 분석하여
+파이썬 스크립트(Playwright + WinApp + 변수 할당 패턴)를 지능적으로 분석하여
 1회 실행(Setup)과 반복 실행(Loop) 스텝 카드로 자동 변환하는 고급 파서 엔진
 """
 
@@ -19,6 +19,7 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
     current_zone = "setup"  # 기본은 1회 실행(setup), for 루프나 반복 주석 발견 시 loop로 전환
 
     step_counter = 1
+    locator_vars: Dict[str, str] = {}  # 변수 할당된 셀렉터 추적 (예: contract_input = page.locator(...))
 
     i = 0
     while i < len(lines):
@@ -29,23 +30,41 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
             continue
 
         # 1. 주석 기반 명시적 영역 전환 감지
-        if "# [1회" in line or "# [초기" in line or "# [setup" in line.lower():
+        if any(kw in line for kw in ["# [1단계", "# [1회", "# [초기", "# [setup", "# [Setup"]):
             current_zone = "setup"
             continue
-        if "# [반복" in line or "# [루프" in line or "# [loop" in line.lower() or "for " in line:
+        if any(kw in line for kw in ["# [2단계", "# [반복", "# [루프", "# [loop", "# [Loop"]):
             current_zone = "loop"
-            if line.startswith("for ") or line.startswith("#"):
-                continue
+            continue
 
-        # 무시할 기본 임포트 및 세션 코드
+        if line.startswith("for ") and "in " in line:
+            current_zone = "loop"
+            continue
+
+        # 무시할 기본 보일러플레이트 코드
         if line.startswith("import ") or line.startswith("from ") or line.startswith("#"):
             continue
-        if any(kw in line for kw in ["sync_playwright", "playwright.chromium", "browser.new_context", "context.new_page"]):
+        if any(kw in line for kw in [
+            "sync_playwright", "playwright.chromium", "browser.new_context", "context.new_page",
+            "def run(", "if __name__", "with sync_playwright", "test_items = [", "pdf_items = [",
+            "context.close()", "browser.close()"
+        ]):
+            continue
+        if line in ["[", "]", "}", "{", "],"]:
+            continue
+        if line.startswith('{"계약번호"') or line.startswith("{'계약번호'"):
             continue
 
         step_dict = None
 
-        # 2. GOTO (페이지 이동)
+        # 2. 로케이터 변수 할당 감지 (예: var_name = page.locator("..."))
+        var_assign_match = re.search(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*page\.locator\(["\'](.*?)["\']\)', line)
+        if var_assign_match:
+            var_name, sel = var_assign_match.groups()
+            locator_vars[var_name] = sel
+            continue
+
+        # 3. GOTO (페이지 이동)
         m = re.search(r'page\.goto\(["\'](.*?)["\']\)', line)
         if m:
             step_dict = {
@@ -56,7 +75,7 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                 "title": f"페이지 이동: {m.group(1)}"
             }
 
-        # 3. FILL (get_by_role)
+        # 4. FILL (get_by_role)
         elif "get_by_role" in line and ".fill(" in line:
             m = re.search(r'get_by_role\(["\'](\w+)["\'],\s*name=["\'](.*?)["\']\)\.fill\((.*?)\)', line)
             if m:
@@ -71,7 +90,7 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                     "title": f"입력: {name} -> {val}"
                 }
 
-        # 4. CLICK (get_by_role)
+        # 5. CLICK (get_by_role)
         elif "get_by_role" in line and ".click(" in line:
             m = re.search(r'get_by_role\(["\'](\w+)["\'],\s*name=["\'](.*?)["\']\)\.click\(\)', line)
             if m:
@@ -85,7 +104,7 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                     "title": f"클릭: {name}"
                 }
 
-        # 5. DBLCLICK (더블클릭)
+        # 6. DBLCLICK (더블클릭)
         elif ".dblclick(" in line:
             m = re.search(r'page\.locator\(["\'](.*?)["\']\).*?\.dblclick\(\)', line)
             target = m.group(1) if m else "table tbody tr"
@@ -97,13 +116,13 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                 "title": f"더블클릭: {target}"
             }
 
-        # 6. SET_FILES (파일 첨부)
+        # 7. SET_FILES (파일 첨부)
         elif ".set_input_files(" in line:
             m = re.search(r'page\.locator\(["\'](.*?)["\']\).*?\.set_input_files\((.*?)\)', line)
             if m:
                 target = m.group(1)
                 raw_val = m.group(2).strip('"\'')
-                val = "{{첨부파일_경로}}" if "file_path" in raw_val or "item" in raw_val else raw_val
+                val = "{{첨부파일_경로}}" if ("file_path" in raw_val or "item" in raw_val) else raw_val
                 step_dict = {
                     "id": f"step_{step_counter}",
                     "action": "SET_FILES",
@@ -112,13 +131,14 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                     "title": f"파일 첨부: {target}"
                 }
 
-        # 7. FILL (locator)
+        # 8. FILL (locator 또는 로케이터 변수)
         elif ".fill(" in line:
+            # 8-1: page.locator("...").fill(...)
             m = re.search(r'page\.locator\(["\'](.*?)["\']\).*?\.fill\((.*?)\)', line)
             if m:
                 target = m.group(1)
                 raw_val = m.group(2).strip('"\'')
-                val = "{{계약번호}}" if "contract_no" in raw_val or "item" in raw_val else raw_val
+                val = "{{계약번호}}" if ("contract" in raw_val or "item" in raw_val) else raw_val
                 step_dict = {
                     "id": f"step_{step_counter}",
                     "action": "FILL",
@@ -126,8 +146,47 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                     "value": val,
                     "title": f"입력: {target} -> {val}"
                 }
+            else:
+                # 8-2: var_name.fill(...)
+                m_var = re.search(r'^([a-zA-Z_][a-zA-Z0-9_]*)\.fill\((.*?)\)', line)
+                if m_var:
+                    v_name, raw_val = m_var.groups()
+                    target = locator_vars.get(v_name, v_name)
+                    val = "{{계약번호}}" if ("contract" in raw_val or "item" in raw_val) else raw_val.strip('"\'')
+                    step_dict = {
+                        "id": f"step_{step_counter}",
+                        "action": "FILL",
+                        "target": target,
+                        "value": val,
+                        "title": f"입력: {target} -> {val}"
+                    }
 
-        # 8. CLICK (locator)
+        # 9. CLICK (locator 필터 또는 클릭)
+        elif "locator(" in line and ".filter(" in line and ".click(" in line:
+            m = re.search(r'page\.locator\(["\'](.*?)["\']\)\.filter\(has_text=.*?["\'](.*?)["\']\)\.click\(\)', line)
+            if m:
+                tag, text = m.groups()
+                clean_text = text.strip("^$")
+                target = f'{tag}:has-text("{clean_text}")'
+                step_dict = {
+                    "id": f"step_{step_counter}",
+                    "action": "CLICK",
+                    "target": target,
+                    "value": "",
+                    "title": f"클릭: {clean_text}"
+                }
+            else:
+                m2 = re.search(r'page\.locator\(["\'](.*?)["\']\).*?\.click\(\)', line)
+                target = m2.group(1) if m2 else "button"
+                step_dict = {
+                    "id": f"step_{step_counter}",
+                    "action": "CLICK",
+                    "target": target,
+                    "value": "",
+                    "title": f"클릭: {target}"
+                }
+
+        # 10. CLICK (일반 locator.click)
         elif ".click(" in line:
             m = re.search(r'page\.locator\(["\'](.*?)["\']\).*?\.click\(\)', line)
             if m:
@@ -140,7 +199,7 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                     "title": f"클릭: {target}"
                 }
 
-        # 9. CHECK (체크박스)
+        # 11. CHECK (체크박스)
         elif ".check(" in line:
             m = re.search(r'page\.locator\(["\'](.*?)["\']\).*?\.check\(\)', line)
             target = m.group(1) if m else "input[type='checkbox']"
@@ -152,7 +211,7 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                 "title": f"체크박스 선택: {target}"
             }
 
-        # 10. SELECT_OPTION (드롭다운)
+        # 12. SELECT_OPTION (드롭다운)
         elif ".select_option(" in line:
             m = re.search(r'page\.locator\(["\'](.*?)["\']\).*?\.select_option\(["\'](.*?)["\']\)', line)
             if m:
@@ -165,7 +224,7 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                     "title": f"옵션 선택: {target} -> {val}"
                 }
 
-        # 11. WAIT_TIME (시간 대기)
+        # 13. WAIT_TIME (시간 대기)
         elif "wait_for_timeout(" in line or "time.sleep(" in line:
             m = re.search(r'wait_for_timeout\((\d+)\)', line)
             if not m:
@@ -181,11 +240,19 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                 "title": f"시간 대기: {ms}ms"
             }
 
-        # 12. WAIT_SELECTOR (요소 대기)
-        elif "wait_for_selector(" in line:
-            m = re.search(r'wait_for_selector\(["\'](.*?)["\']', line)
-            if m:
-                target = m.group(1)
+        # 14. WAIT_SELECTOR / WAIT_LOAD_STATE
+        elif "wait_for_selector(" in line or "wait_for_load_state(" in line:
+            if "wait_for_load_state(" in line:
+                step_dict = {
+                    "id": f"step_{step_counter}",
+                    "action": "WAIT_TIME",
+                    "target": "",
+                    "value": "1000",
+                    "title": "화면 로딩 대기 (1000ms)"
+                }
+            else:
+                m = re.search(r'wait_for_selector\(["\'](.*?)["\']', line)
+                target = m.group(1) if m else ""
                 step_dict = {
                     "id": f"step_{step_counter}",
                     "action": "WAIT_SELECTOR",
@@ -194,7 +261,7 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                     "title": f"요소 로딩 대기: {target}"
                 }
 
-        # 13. PRESS_KEY (키 입력)
+        # 15. PRESS_KEY (키 입력)
         elif "keyboard.press(" in line or "press(" in line:
             m = re.search(r'press\(["\'](.*?)["\']\)', line)
             if m:
@@ -207,7 +274,7 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                     "title": f"키 입력: {key}"
                 }
 
-        # 14. FIND_WINDOW (윈도우 창 찾기)
+        # 16. FIND_WINDOW (윈도우 창 찾기)
         elif "find_and_focus_window(" in line:
             m = re.search(r'find_and_focus_window\(["\'](.*?)["\']\)', line)
             title_kw = m.group(1) if m else "사내 ERP"
@@ -219,7 +286,7 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                 "title": f"윈도우 창 포커스: {title_kw}"
             }
 
-        # 15. PIXEL_MATCH / KVM Click
+        # 17. PIXEL_MATCH / KVM Click
         elif "pyautogui.click(" in line:
             m = re.search(r'pyautogui\.click\((\d+),\s*(\d+)\)', line)
             if m:
@@ -240,16 +307,21 @@ def parse_advanced_python_to_scenario(code_text: str) -> Tuple[List[Dict[str, An
                     "title": "이미지 매칭 클릭"
                 }
 
-        # 16. 기타 파이썬 로직/함수 블록 -> EXEC_CODE 카드로 보존
+        # 18. 기타 실질적 파이썬 실행문 -> EXEC_CODE
         else:
-            # 단순 변수 할당이나 짧은 문장은 건너뛰고, 실제 로직이 있는 경우 EXEC_CODE 카드로 생성
-            if len(line) > 10 and not line.startswith("print(") and not line.startswith("return "):
+            # 단순 변수 할당(`contract_no = item[...]`)이나 print문은 카드로 만들지 않고 스킵
+            if any(line.startswith(prefix) for prefix in [
+                "print(", "return ", "contract_no =", "file_path =", "idx =", "item ="
+            ]):
+                continue
+
+            if len(line) > 10:
                 step_dict = {
                     "id": f"step_{step_counter}",
                     "action": "EXEC_CODE",
                     "target": "",
                     "value": line,
-                    "title": f"파이썬 실행: {line[:30]}..."
+                    "title": f"파이썬 실행: {line[:25]}..."
                 }
 
         if step_dict:

@@ -1,6 +1,21 @@
 # RELEASE_NOTES.md
 
-## [v1.4.0.Build.6] - 2026-08-21 15:48
+## [v1.4.1.Build.7] - 2026-08-21 16:10
+
+### 🐛 [버그 수정 & 완성] 파이썬 스크립트 ➔ 스텝 카드 변환 엔진 연결 및 렌더링 수정
+
+1. **위젯 참조 오류 수정**:
+   - `recorder_gui.py` 내부 텍스트 에디터 위젯명(`self.txt_code`) 불일치로 인한 빈 코드 참조 문제 완전 해결
+   - `@property def txt_script_editor` 양방향 별칭 지원으로 호환성 100% 확보
+2. **지능형 파서(`playwright_parser.py`) 변수 할당 패턴 인식 강화**:
+   - `contract_input = page.locator(...)` 및 `contract_input.fill(...)` 등 변수 기반 로케이터 체이닝 구문 완벽 파싱
+   - 주석 기반 단계 구분(`# [1단계: 1회 실행]`, `# [2단계: 반복 루프]`) 자동 인식
+3. **카드 렌더링 UI 확장**:
+   - `GOTO`, `FILL`, `SET_FILES`, `CLICK`, `DBLCLICK`, `WAIT_TIME`, `PRESS_KEY`, `EXEC_CODE` 등 모든 액션에 대해 입력값/변수 주입 필드 완벽 렌더링
+
+---
+
+
 
 ### 🧩 [지능형 파서] 파이썬 스크립트 ➔ 비주얼 스텝 카드 즉시 변환 엔진 탑재
 

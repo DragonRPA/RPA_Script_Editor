@@ -108,6 +108,10 @@ class RecorderGUI(ctk.CTk):
         self._build_ui()
         self._refresh_step_lists()
 
+    @property
+    def txt_script_editor(self):
+        return self.txt_code
+
     def _build_ui(self):
         """메인 탭 레이아웃 구성"""
         self.tabview = ctk.CTkTabview(self, corner_radius=6)
@@ -553,14 +557,29 @@ class RecorderGUI(ctk.CTk):
         e_target.insert(0, step.get("target", ""))
         e_target.bind("<FocusOut>", lambda e, s=step, ent=e_target: self._update_step_val(s, "target", ent.get()))
 
-        if step.get("action") in ["FILL", "SET_FILES", "GOTO"]:
+        # 모든 액션에 대해 값(Value) 또는 내용 필드 렌더링
+        has_val = step.get("action") in ["FILL", "SET_FILES", "GOTO", "SELECT_OPTION", "PRESS_KEY", "WAIT_TIME", "FIND_WINDOW", "KVM_CLICK", "PIXEL_MATCH", "EXEC_CODE"]
+        if has_val or step.get("value"):
             f_val = ctk.CTkFrame(card, fg_color="transparent")
             f_val.pack(fill="x", padx=8, pady=(2, 6))
-            
+
             v_head = ctk.CTkFrame(f_val, fg_color="transparent")
             v_head.pack(fill="x")
-            ctk.CTkLabel(v_head, text="입력값 / 파일경로:", font=ctk.CTkFont(size=11)).pack(side="left")
-            
+
+            val_label = "입력값 / 내용:"
+            if step.get("action") == "WAIT_TIME":
+                val_label = "대기 시간(ms):"
+            elif step.get("action") == "SET_FILES":
+                val_label = "파일 경로:"
+            elif step.get("action") == "GOTO":
+                val_label = "이동할 URL:"
+            elif step.get("action") == "PRESS_KEY":
+                val_label = "단축키/키명:"
+            elif step.get("action") == "EXEC_CODE":
+                val_label = "파이썬 코드 구문:"
+
+            ctk.CTkLabel(v_head, text=val_label, font=ctk.CTkFont(size=11)).pack(side="left")
+
             ctk.CTkButton(
                 v_head, text="{{계약번호}}", width=65, height=18, font=ctk.CTkFont(size=10),
                 command=lambda ent=None, s=step: self._inject_variable(s, "{{계약번호}}")
@@ -667,7 +686,7 @@ class RecorderGUI(ctk.CTk):
 
     def _convert_current_script_to_cards(self):
         """현재 에디터의 파이썬 코드를 분석하여 비주얼 스텝 카드로 변환하고 카드 탭으로 이동"""
-        code = self.txt_script_editor.get("1.0", "end").strip()
+        code = self.txt_code.get("1.0", "end").strip()
         if not code:
             messagebox.showwarning("입력 확인", "에디터에 변환할 파이썬 코드가 없습니다.")
             return
@@ -689,6 +708,7 @@ class RecorderGUI(ctk.CTk):
             f"• 1회 실행(Setup) 영역: {len(setup_steps)}개 카드\n"
             f"• 반복 실행(Loop) 영역: {len(loop_steps)}개 카드"
         )
+
 
 
     def _load_neon_url(self) -> str:
@@ -845,8 +865,8 @@ class RecorderGUI(ctk.CTk):
             if not code:
                 messagebox.showwarning("경고", "삽입할 코드가 없습니다.")
                 return
-            self.txt_script_editor.insert("insert", f"\n{code}\n")
-            self.txt_script_editor.focus_set()
+            self.txt_code.insert("insert", f"\n{code}\n")
+            self.txt_code.focus_set()
             modal.destroy()
             messagebox.showinfo("삽입 완료", f"모듈 '{ent_mod_title.get()}' 코드가 에디터에 삽입되었습니다.")
 
@@ -869,7 +889,7 @@ class RecorderGUI(ctk.CTk):
                 messagebox.showerror("저장 오류", f"DB 저장 실패: {e}")
 
         def _pull_from_main_editor():
-            cur_code = self.txt_script_editor.get("1.0", "end").strip()
+            cur_code = self.txt_code.get("1.0", "end").strip()
             if not cur_code:
                 messagebox.showwarning("안내", "현재 에디터에 코드가 없습니다.")
                 return
