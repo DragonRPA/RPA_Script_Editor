@@ -589,4 +589,76 @@ print(f"실행 시각: {dt_str}")
 """
         },
     ],
+
+    # =========================================================================
+    # 🗄️ 클라우드 데이터베이스 (Neon PostgreSQL)
+    # =========================================================================
+    "🗄️ 데이터베이스 (Neon PostgreSQL)": [
+        {
+            "name": "Neon DB 매니저로 단일 계약서 로그 기록",
+            "desc": "neon_db.py를 사용해 RPA 성공/실패 이력을 Neon 클라우드 DB에 저장",
+            "code": """# [Neon PostgreSQL] RPA 처리 결과 클라우드 DB에 기록
+from neon_db import NeonDBManager
+from config_manager import ConfigManager
+
+cfg = ConfigManager()
+db = NeonDBManager(cfg.get("neon_database_url"))
+
+# 단일 계약서 처리 결과 즉시 저장
+log_id = db.log_contract_result(
+    contract_no = item["계약번호"],
+    file_name   = os.path.basename(item["file_path"]),
+    file_path   = item["file_path"],
+    status      = "RPA_DONE",  # 또는 "ERROR"
+    ocr_data    = {"계약번호": item["계약번호"], "고객명": item.get("고객명", "")},
+    duration_ms = 1200
+)
+print(f"Neon DB 로그 기록 완료 (ID: {log_id})")
+"""
+        },
+        {
+            "name": "직접 SQL 쿼리 실행 (psycopg2)",
+            "desc": "Neon PostgreSQL에 직접 SELECT / INSERT 쿼리 실행",
+            "code": """import psycopg2
+from config_manager import ConfigManager
+
+cfg = ConfigManager()
+conn = psycopg2.connect(cfg.get("neon_database_url"))
+cur = conn.cursor()
+
+# 계약 조회 쿼리 예시
+cur.execute("SELECT contract_no, status, executed_at FROM rpa_contract_logs ORDER BY executed_at DESC LIMIT 10;")
+rows = cur.fetchall()
+for r in rows:
+    print(r)
+
+cur.close()
+conn.close()
+"""
+        },
+        {
+            "name": "RPA 배치 실행 요약 통계 저장 (rpa_batch_runs)",
+            "desc": "전체 작업 완료 시 배치 통계(총건수, 성공, 실패) 기록",
+            "code": """import psycopg2
+import uuid
+from datetime import datetime
+from config_manager import ConfigManager
+
+cfg = ConfigManager()
+conn = psycopg2.connect(cfg.get("neon_database_url"))
+cur = conn.cursor()
+
+batch_id = f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+cur.execute(\"\"\"
+    INSERT INTO rpa_batch_runs (batch_id, total_files, success_count, fail_count, finished_at, status)
+    VALUES (%s, %s, %s, %s, NOW(), 'COMPLETED')
+\"\"\", (batch_id, len(pdf_items), success_count, fail_count))
+conn.commit()
+cur.close()
+conn.close()
+print(f"배치 실행 이력 저장 완료: {batch_id}")
+"""
+        },
+    ],
 }
+

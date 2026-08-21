@@ -21,7 +21,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "headless": False,
     "rename_template": "{계약번호}.pdf",
     "max_retries": 3,
-    "timeout_sec": 30
+    "timeout_sec": 30,
+    "neon_database_url": ""
 }
 
 CONFIG_FILE_NAME = "config.json"

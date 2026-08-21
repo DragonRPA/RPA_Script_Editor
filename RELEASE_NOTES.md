@@ -1,6 +1,23 @@
 # RELEASE_NOTES.md
 
-## [v1.1.0.Build.2] - 2026-08-21 15:05
+## [v1.2.0.Build.4] - 2026-08-21 15:38
+
+### 🗄️ [클라우드 DB] Neon Serverless PostgreSQL 정식 연동 & 스키마 자동 구축 완료
+
+1. **Neon PostgreSQL 실시간 라이브 연동**:
+   - 싱가포르 리전(`ap-southeast-1`) PostgreSQL 18.6 실시간 연결 확인 (지연시간 ~700ms)
+   - `psycopg2-binary` 패키지 설치 및 `neon_db.py` 매니저 모듈 신규 탑재
+2. **RPA 2대 핵심 테이블 자동 초기화**:
+   - `rpa_contract_logs`: 계약번호, 파일명, 처리상태, OCR JSON 데이터, 소요시간, 인덱스 자동 생성
+   - `rpa_batch_runs`: 배치 ID, 총 파일수, 성공수, 실패수, 완료시각
+3. **스니펫 라이브러리 `🗄️ 데이터베이스 (Neon PostgreSQL)` 카테고리 추가**:
+   - Neon DB 매니저로 단일 계약서 로그 기록
+   - 직접 SQL 쿼리 실행 (psycopg2)
+   - RPA 배치 실행 요약 통계 저장
+
+---
+
+
 
 ### 🖥️ [ImageScan 프로젝트 이식] 윈도우 앱 자동화 4단계 Fallback 아키텍처 완전 탑재
 
