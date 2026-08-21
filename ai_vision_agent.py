@@ -1,6 +1,7 @@
 """
-Google Gemini Multimodal Vision AI RPA Code & Selector Generator
-화면 스크린샷 + 자연어 프롬프트를 분석하여 최적의 Playwright / Windows UIA 셀렉터 및 파이썬 코드를 자동 생성하는 AI 에이전트
+Universal RPA - Hybrid Vision AI RPA Code & Selector Generator
+Google Gemini (클라우드 초고속) + Local Ollama (100% 무료 / 로컬 오프라인) 듀얼 엔진
+화면 스크린샷 + 자연어 프롬프트를 분석하여 최적의 Playwright / Windows UIA 셀렉터 및 파이썬 코드를 자동 생성
 """
 
 import os
@@ -9,7 +10,7 @@ import json
 import base64
 import threading
 import time
-from typing import Dict, Any, Optional, Tuple, Callable
+from typing import Dict, Any, Optional, Tuple, Callable, List
 
 import requests
 import customtkinter as ctk
@@ -24,7 +25,7 @@ except ImportError:
 
 
 class GeminiVisionAgent:
-    """Google Gemini 멀티모달 비전 API 통신 매니저"""
+    """Google Gemini 멀티모달 비전 API 통신 매니저 (클라우드)"""
 
     SYSTEM_INSTRUCTION = """당신은 세계 최고 수준의 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
 사용자가 제공한 화면 스크린샷 이미지와 자연어 요구사항을 분석하여, 가장 견고하고 정확한 Playwright (웹) 또는 Windows UIA (데스크톱) 자동화 코드를 작성해야 합니다.
@@ -41,28 +42,21 @@ class GeminiVisionAgent:
     @classmethod
     def call_gemini_vision(cls, api_key: str, image_path: str, user_prompt: str,
                            model: str = "gemini-2.5-flash", page_html: str = "") -> Tuple[str, str]:
-        """
-        Gemini REST API v1beta를 통해 이미지 + 프롬프트로 코드 생성
-        반환값: (generated_code, full_explanation)
-        """
         if not api_key:
             raise ValueError("Google Gemini API Key가 설정되지 않았습니다.")
 
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"이미지 파일을 찾을 수 없습니다: {image_path}")
 
-        # 1. 이미지 Base64 인코딩
         with open(image_path, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-        # MIME 타입 결정
         mime_type = "image/png"
         if image_path.lower().endswith(".jpg") or image_path.lower().endswith(".jpeg"):
             mime_type = "image/jpeg"
         elif image_path.lower().endswith(".webp"):
             mime_type = "image/webp"
 
-        # 2. 페이로드 구성
         parts = [
             {
                 "inline_data": {
@@ -83,12 +77,7 @@ class GeminiVisionAgent:
             "system_instruction": {
                 "parts": [{"text": cls.SYSTEM_INSTRUCTION}]
             },
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": parts
-                }
-            ],
+            "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {
                 "temperature": 0.2,
                 "maxOutputTokens": 4096
@@ -111,7 +100,77 @@ class GeminiVisionAgent:
         except (KeyError, IndexError):
             raise RuntimeError(f"Gemini 응답 파싱 실패: {data}")
 
-        # 코드 블록 추출
+        code = ""
+        if "```python" in full_text:
+            code = full_text.split("```python")[1].split("```")[0].strip()
+        elif "```" in full_text:
+            code = full_text.split("```")[1].split("```")[0].strip()
+        else:
+            code = full_text.strip()
+
+        return code, full_text
+
+
+class OllamaVisionAgent:
+    """로컬 Ollama 멀티모달 비전 API 통신 매니저 (100% 무료 / 오프라인)"""
+
+    SYSTEM_INSTRUCTION = """당신은 세계 최고 수준의 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
+제공된 화면 스크린샷 이미지와 요구사항을 분석하여, 가장 견고하고 정확한 Playwright (웹) 또는 Windows UIA 자동화 코드를 작성하십시오.
+반드시 실행 가능한 파이썬 코드를 ```python ... ``` 블록으로 감싸서 출력하십시오."""
+
+    @classmethod
+    def list_installed_models(cls, ollama_url: str = "http://localhost:11434") -> List[str]:
+        """Ollama에 설치된 모델 목록 조회 (비전 모델 우선 정렬)"""
+        try:
+            r = requests.get(f"{ollama_url.rstrip('/')}/api/tags", timeout=3)
+            if r.status_code == 200:
+                models = [m["name"] for m in r.json().get("models", [])]
+                vision_keywords = ["vl", "vision", "llava", "minicpm", "moondream", "gemma"]
+                def sort_key(m):
+                    for kw in vision_keywords:
+                        if kw in m.lower():
+                            return 0
+                    return 1
+                return sorted(models, key=sort_key)
+        except Exception:
+            pass
+        return ["qwen3-vl:4b", "llama3.2-vision", "llava", "qwen2.5:7b"]
+
+    @classmethod
+    def call_ollama_vision(cls, ollama_url: str, model: str, image_path: str, user_prompt: str) -> Tuple[str, str]:
+        """로컬 Ollama /api/generate 엔드포인트 호출"""
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"이미지 파일을 찾을 수 없습니다: {image_path}")
+
+        with open(image_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        full_prompt = f"""{cls.SYSTEM_INSTRUCTION}
+
+[사용자 자연어 요구사항]
+{user_prompt}
+
+위 화면 스크린샷에서 타겟 요소를 찾아 최적의 Playwright 셀렉터와 파이썬 실행 코드를 작성해 주십시오."""
+
+        url = f"{ollama_url.rstrip('/')}/api/generate"
+        payload = {
+            "model": model,
+            "prompt": full_prompt,
+            "images": [img_b64],
+            "stream": False,
+            "options": {
+                "temperature": 0.2,
+                "num_predict": 4096
+            }
+        }
+
+        resp = requests.post(url, json=payload, timeout=90)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Ollama API 오류 ({resp.status_code}): {resp.text}")
+
+        data = resp.json()
+        full_text = data.get("response", "")
+
         code = ""
         if "```python" in full_text:
             code = full_text.split("```python")[1].split("```")[0].strip()
@@ -124,7 +183,7 @@ class GeminiVisionAgent:
 
 
 class AIVisionModal(ctk.CTkToplevel):
-    """Google Gemini Vision AI 코드 생성기 대화상자"""
+    """Google Gemini + Local Ollama 듀얼 비전 AI 코드 생성기 대화상자"""
 
     _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recorder_config.json")
 
@@ -136,37 +195,72 @@ class AIVisionModal(ctk.CTkToplevel):
         self.on_insert_code = on_insert_code
         self.on_add_to_bot = on_add_to_bot
 
-        self.title("🤖 Google Gemini Vision AI 셀렉터 & RPA 코드 생성기")
-        self.geometry("960x780")
-        self.minsize(860, 640)
+        self.title("🤖 하이브리드 Vision AI 셀렉터 & RPA 코드 생성기 (Gemini + Ollama)")
+        self.geometry("980x800")
+        self.minsize(880, 660)
         self.attributes("-topmost", True)
 
         self.current_image_path: Optional[str] = None
         self.preview_image_ref: Optional[ImageTk.PhotoImage] = None
 
         self._build_ui()
-        self._load_saved_api_key()
+        self._load_saved_configs()
+        self._on_engine_changed(self.seg_engine.get())
 
     def _build_ui(self):
-        # 1. 상단 API Key 바
-        api_bar = ctk.CTkFrame(self, corner_radius=6)
-        api_bar.pack(fill="x", padx=10, pady=(10, 6))
+        # 1. 상단 AI 엔진 선택 및 설정 바
+        top_ctrl = ctk.CTkFrame(self, corner_radius=6)
+        top_ctrl.pack(fill="x", padx=10, pady=(10, 6))
 
-        ctk.CTkLabel(api_bar, text="🔑 Gemini API Key:", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(10, 4), pady=8)
-        self.ent_api_key = ctk.CTkEntry(api_bar, height=28, placeholder_text="AI Studio에서 발급받은 Gemini API Key 입력", show="*")
-        self.ent_api_key.pack(side="left", fill="x", expand=True, padx=(0, 6), pady=6)
+        # 엔진 전환 세그먼트 (Gemini vs Ollama)
+        ctk.CTkLabel(top_ctrl, text="AI 엔진:", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(10, 4), pady=8)
+        self.seg_engine = ctk.CTkSegmentedButton(
+            top_ctrl, values=["☁️ Google Gemini (초고속)", "🦙 Local Ollama (100% 무료)"],
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._on_engine_changed
+        )
+        self.seg_engine.pack(side="left", padx=(0, 12), pady=6)
+        self.seg_engine.set("☁️ Google Gemini (초고속)")
 
-        btn_toggle_key = ctk.CTkButton(api_bar, text="👁", width=30, height=28, fg_color="#444444", command=self._toggle_key_visibility)
-        btn_toggle_key.pack(side="left", padx=(0, 6), pady=6)
+        # 엔진별 동적 설정 영역
+        self.engine_conf_frame = ctk.CTkFrame(top_ctrl, fg_color="transparent")
+        self.engine_conf_frame.pack(side="left", fill="x", expand=True, padx=4)
 
-        btn_save_key = ctk.CTkButton(api_bar, text="Key 저장", width=80, height=28, fg_color="#2e7d32", hover_color="#1b5e20", command=self._save_api_key)
-        btn_save_key.pack(side="left", padx=(0, 10), pady=6)
+        # ---------------------------------------------------------------------
+        # [A] Gemini 설정 위젯들
+        # ---------------------------------------------------------------------
+        self.f_gemini = ctk.CTkFrame(self.engine_conf_frame, fg_color="transparent")
+        ctk.CTkLabel(self.f_gemini, text="Key:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
+        self.ent_api_key = ctk.CTkEntry(self.f_gemini, height=28, width=200, placeholder_text="Gemini API Key", show="*")
+        self.ent_api_key.pack(side="left", padx=(0, 4))
 
-        # 모델 선택
-        ctk.CTkLabel(api_bar, text="모델:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
-        self.cbo_model = ctk.CTkComboBox(api_bar, values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"], width=150, height=28)
-        self.cbo_model.pack(side="left", padx=(0, 10))
-        self.cbo_model.set("gemini-2.5-flash")
+        btn_toggle_key = ctk.CTkButton(self.f_gemini, text="👁", width=28, height=28, fg_color="#444444", command=self._toggle_key_visibility)
+        btn_toggle_key.pack(side="left", padx=(0, 4))
+
+        btn_save_key = ctk.CTkButton(self.f_gemini, text="저장", width=50, height=28, fg_color="#2e7d32", command=self._save_api_key)
+        btn_save_key.pack(side="left", padx=(0, 8))
+
+        ctk.CTkLabel(self.f_gemini, text="모델:", font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 4))
+        self.cbo_gemini_model = ctk.CTkComboBox(self.f_gemini, values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"], width=145, height=28)
+        self.cbo_gemini_model.pack(side="left")
+        self.cbo_gemini_model.set("gemini-2.5-flash")
+
+        # ---------------------------------------------------------------------
+        # [B] Ollama 설정 위젯들
+        # ---------------------------------------------------------------------
+        self.f_ollama = ctk.CTkFrame(self.engine_conf_frame, fg_color="transparent")
+        ctk.CTkLabel(self.f_ollama, text="URL:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
+        self.ent_ollama_url = ctk.CTkEntry(self.f_ollama, height=28, width=170)
+        self.ent_ollama_url.pack(side="left", padx=(0, 4))
+        self.ent_ollama_url.insert(0, "http://localhost:11434")
+
+        btn_refresh_ollama = ctk.CTkButton(self.f_ollama, text="🔄 모델 조회", width=80, height=28, fg_color="#1f6aa5", command=self._refresh_ollama_models)
+        btn_refresh_ollama.pack(side="left", padx=(0, 8))
+
+        ctk.CTkLabel(self.f_ollama, text="비전 모델:", font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 4))
+        self.cbo_ollama_model = ctk.CTkComboBox(self.f_ollama, values=["qwen3-vl:4b", "gemma3:12b", "llava", "qwen2.5:7b"], width=145, height=28)
+        self.cbo_ollama_model.pack(side="left")
+        self.cbo_ollama_model.set("qwen3-vl:4b")
 
         # 2. 본문 2분할 (좌: 화면 캡처 및 자연어 프롬프트 / 우: AI 생성 결과)
         body = ctk.CTkFrame(self, corner_radius=6)
@@ -185,7 +279,6 @@ class AIVisionModal(ctk.CTkToplevel):
         l_head.pack(fill="x", padx=8, pady=(8, 4))
         ctk.CTkLabel(l_head, text="📸 1단계: 타겟 화면 캡처 / 이미지", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
 
-        # 캡처 버튼 툴바
         cap_bar = ctk.CTkFrame(left_f, fg_color="transparent")
         cap_bar.pack(fill="x", padx=8, pady=(0, 6))
 
@@ -202,7 +295,6 @@ class AIVisionModal(ctk.CTkToplevel):
         )
         btn_browse_img.pack(side="left", padx=4)
 
-        # 이미지 썸네일 미리보기 영역
         self.frame_preview = ctk.CTkFrame(left_f, height=180, fg_color="#181818", corner_radius=6)
         self.frame_preview.pack(fill="x", padx=8, pady=4)
         self.lbl_img_preview = ctk.CTkLabel(
@@ -211,7 +303,6 @@ class AIVisionModal(ctk.CTkToplevel):
         )
         self.lbl_img_preview.pack(expand=True, pady=40)
 
-        # 자연어 요구사항 입력
         ctk.CTkLabel(
             left_f, text="✍️ 2단계: AI에게 시킬 자연어 지시사항 입력",
             font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6"
@@ -225,7 +316,6 @@ class AIVisionModal(ctk.CTkToplevel):
             "검색 결과 그리드(테이블)의 첫 번째 행을 더블클릭해서 상세 화면으로 이동해줘."
         )
 
-        # 생성 실행 버튼
         self.btn_generate = ctk.CTkButton(
             left_f, text="⚡ AI 코드 생성 (Generate RPA Code)", height=38,
             fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(size=13, weight="bold"),
@@ -248,7 +338,6 @@ class AIVisionModal(ctk.CTkToplevel):
         )
         self.txt_result_code.pack(fill="both", expand=True, padx=8, pady=4)
 
-        # 하단 액션 버튼 바
         b_bar = ctk.CTkFrame(right_f, fg_color="transparent")
         b_bar.pack(fill="x", padx=8, pady=(4, 8))
 
@@ -272,12 +361,30 @@ class AIVisionModal(ctk.CTkToplevel):
         )
         btn_copy.pack(side="right")
 
+    def _on_engine_changed(self, choice: str):
+        if "Gemini" in choice:
+            self.f_ollama.pack_forget()
+            self.f_gemini.pack(fill="x")
+        else:
+            self.f_gemini.pack_forget()
+            self.f_ollama.pack(fill="x")
+            self._refresh_ollama_models()
+
+    def _refresh_ollama_models(self):
+        url = self.ent_ollama_url.get().strip() or "http://localhost:11434"
+        models = OllamaVisionAgent.list_installed_models(url)
+        if models:
+            self.cbo_ollama_model.configure(values=models)
+            if "qwen3-vl:4b" in models:
+                self.cbo_ollama_model.set("qwen3-vl:4b")
+            elif models:
+                self.cbo_ollama_model.set(models[0])
+
     # =========================================================================
     # 화면 캡처 및 이미지 로딩
     # =========================================================================
     def _capture_screen_now(self):
-        """현재 전체 화면 캡처"""
-        self.withdraw()  # 스파이 창 잠시 숨김
+        self.withdraw()
         time.sleep(0.3)
 
         temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "captures")
@@ -289,7 +396,6 @@ class AIVisionModal(ctk.CTkToplevel):
                 shot = pyautogui.screenshot()
                 shot.save(shot_path)
             else:
-                # PIL ImageGrab fallback
                 from PIL import ImageGrab
                 shot = ImageGrab.grab()
                 shot.save(shot_path)
@@ -310,7 +416,6 @@ class AIVisionModal(ctk.CTkToplevel):
     def _display_preview_image(self, path: str):
         try:
             pil_img = Image.open(path)
-            # 썸네일 리사이즈 (가로 최대 400, 세로 최대 160)
             pil_img.thumbnail((400, 160))
             ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
 
@@ -320,14 +425,9 @@ class AIVisionModal(ctk.CTkToplevel):
             self.lbl_img_preview.configure(text=f"미리보기 실패: {ex}")
 
     # =========================================================================
-    # AI 코드 생성 실행 (비동기 스레드)
+    # AI 코드 생성 실행 (Gemini vs Ollama 자동 분기)
     # =========================================================================
     def _start_ai_generation(self):
-        api_key = self.ent_api_key.get().strip()
-        if not api_key:
-            messagebox.showwarning("입력 확인", "상단에 Google Gemini API Key를 먼저 입력해 주십시오.")
-            return
-
         if not self.current_image_path or not os.path.exists(self.current_image_path):
             messagebox.showwarning("입력 확인", "[📸 현재 화면 캡처] 또는 [📁 이미지 파일 열기]로 타겟 화면을 먼저 지정해 주십시오.")
             return
@@ -337,30 +437,59 @@ class AIVisionModal(ctk.CTkToplevel):
             messagebox.showwarning("입력 확인", "AI에게 요청할 자연어 지시사항을 입력해 주십시오.")
             return
 
-        model = self.cbo_model.get()
-        self.btn_generate.configure(text="⏳ Gemini AI 분석 중... (약 1~2초 소요)", state="disabled")
-        self.txt_result_code.delete("1.0", "end")
-        self.txt_result_code.insert("1.0", f"// 🤖 Google Gemini ({model})에 화면 이미지와 요구사항을 전송하여 분석 중입니다...\n// 잠시만 기다려 주십시오...\n")
+        engine_choice = self.seg_engine.get()
 
-        def _worker():
-            try:
-                code, full_text = GeminiVisionAgent.call_gemini_vision(
-                    api_key=api_key,
-                    image_path=self.current_image_path,
-                    user_prompt=prompt,
-                    model=model
-                )
-                self.after(0, lambda c=code, f=full_text: self._on_generation_success(c, f))
-            except Exception as e:
-                self.after(0, lambda err=str(e): self._on_generation_error(err))
+        if "Gemini" in engine_choice:
+            api_key = self.ent_api_key.get().strip()
+            if not api_key:
+                messagebox.showwarning("입력 확인", "Google Gemini API Key를 먼저 입력해 주십시오.")
+                return
+            model = self.cbo_gemini_model.get()
+            self.btn_generate.configure(text="⏳ Gemini 클라우드 분석 중... (약 1~2초)", state="disabled")
+            self.txt_result_code.delete("1.0", "end")
+            self.txt_result_code.insert("1.0", f"// 🤖 Google Gemini ({model})에 화면 이미지와 요구사항을 전송하여 분석 중입니다...\n")
 
-        threading.Thread(target=_worker, daemon=True).start()
+            def _worker_gemini():
+                try:
+                    code, full_text = GeminiVisionAgent.call_gemini_vision(
+                        api_key=api_key,
+                        image_path=self.current_image_path,
+                        user_prompt=prompt,
+                        model=model
+                    )
+                    self.after(0, lambda c=code, f=full_text: self._on_generation_success(c, f, "Gemini"))
+                except Exception as e:
+                    self.after(0, lambda err=str(e): self._on_generation_error(err))
 
-    def _on_generation_success(self, code: str, full_text: str):
+            threading.Thread(target=_worker_gemini, daemon=True).start()
+
+        else:
+            # Ollama 로컬 실행
+            ollama_url = self.ent_ollama_url.get().strip() or "http://localhost:11434"
+            model = self.cbo_ollama_model.get()
+            self.btn_generate.configure(text="⏳ Ollama 로컬 비전 추론 중... (약 3~6초)", state="disabled")
+            self.txt_result_code.delete("1.0", "end")
+            self.txt_result_code.insert("1.0", f"// 🦙 Local Ollama ({model})에서 로컬 GPU로 화면 이미지를 추론 중입니다...\n// (100% 무료 / 사내 보안 유지 / 외부 유출 없음)\n")
+
+            def _worker_ollama():
+                try:
+                    code, full_text = OllamaVisionAgent.call_ollama_vision(
+                        ollama_url=ollama_url,
+                        model=model,
+                        image_path=self.current_image_path,
+                        user_prompt=prompt
+                    )
+                    self.after(0, lambda c=code, f=full_text: self._on_generation_success(c, f, f"Ollama ({model})"))
+                except Exception as e:
+                    self.after(0, lambda err=str(e): self._on_generation_error(err))
+
+            threading.Thread(target=_worker_ollama, daemon=True).start()
+
+    def _on_generation_success(self, code: str, full_text: str, engine_name: str):
         self.btn_generate.configure(text="⚡ AI 코드 생성 (Generate RPA Code)", state="normal")
         self.txt_result_code.delete("1.0", "end")
         self.txt_result_code.insert("1.0", code)
-        messagebox.showinfo("생성 완료", "✅ Gemini Vision AI가 최적의 셀렉터와 파이썬 RPA 코드를 생성하였습니다!")
+        messagebox.showinfo("생성 완료", f"✅ {engine_name} 엔진이 최적의 셀렉터와 파이썬 RPA 코드를 생성하였습니다!")
 
     def _on_generation_error(self, err_msg: str):
         self.btn_generate.configure(text="⚡ AI 코드 생성 (Generate RPA Code)", state="normal")
@@ -387,12 +516,13 @@ class AIVisionModal(ctk.CTkToplevel):
             messagebox.showwarning("안내", "추가할 유효한 생성 코드가 없습니다.")
             return
 
+        engine_str = "Gemini" if "Gemini" in self.seg_engine.get() else self.cbo_ollama_model.get()
         prompt_first_line = self.txt_prompt.get("1.0", "end").strip().splitlines()[0][:20]
         mod_data = {
             "name": f"ai_mod_{int(time.time())}",
             "title": f"AI 생성: {prompt_first_line}",
             "category": "웹조작",
-            "description": f"Gemini Vision 생성 모듈 ({self.cbo_model.get()})",
+            "description": f"Vision AI 생성 모듈 ({engine_str})",
             "code": code
         }
 
@@ -411,26 +541,34 @@ class AIVisionModal(ctk.CTkToplevel):
         else:
             self.ent_api_key.configure(show="*")
 
-    def _load_saved_api_key(self):
-        # 1. 환경변수 확인
+    def _load_saved_configs(self):
         k = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
-        if not k and os.path.exists(self._CONFIG_FILE):
+        ollama_u = "http://localhost:11434"
+
+        if os.path.exists(self._CONFIG_FILE):
             try:
                 with open(self._CONFIG_FILE, "r", encoding="utf-8") as f:
-                    k = json.load(f).get("gemini_api_key", "")
+                    cfg = json.load(f)
+                    k = k or cfg.get("gemini_api_key", "")
+                    ollama_u = cfg.get("ollama_url", ollama_u)
             except Exception:
                 pass
-        if not k:
-            ubus_cfg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "UBUS_contract", "config.json")
-            if os.path.exists(ubus_cfg):
-                try:
-                    with open(ubus_cfg, "r", encoding="utf-8") as f:
-                        k = json.load(f).get("gemini_api_key", "")
-                except Exception:
-                    pass
+
+        ubus_cfg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "UBUS_contract", "config.json")
+        if os.path.exists(ubus_cfg):
+            try:
+                with open(ubus_cfg, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    k = k or cfg.get("gemini_api_key", "")
+                    ollama_u = cfg.get("ollama_url", ollama_u)
+            except Exception:
+                pass
 
         if k:
             self.ent_api_key.insert(0, k)
+        if ollama_u:
+            self.ent_ollama_url.delete(0, "end")
+            self.ent_ollama_url.insert(0, ollama_u)
 
     def _save_api_key(self):
         k = self.ent_api_key.get().strip()
