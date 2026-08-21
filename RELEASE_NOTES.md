@@ -1,6 +1,20 @@
 # RELEASE_NOTES.md
 
-## [v2.1.0.Build.9] - 2026-08-21 16:38
+## [v2.1.1.Build.10] - 2026-08-21 16:40
+
+### 🐛 [버그 수정 & 강화] Windows UIA Spy COM 스레드 초기화 및 전역 F2 캡처 완성
+
+1. **백그라운드 스레드 COM 초기화 버그 수정**:
+   - `uia.ControlFromCursor()` 호출 시 백그라운드 스레드의 `CoInitialize` 누락으로 인한 무음 실패(Silent Exception) 완전 해결
+   - `uia.UIAutomationInitializerInThread()` 컨텍스트 적용으로 마우스 이동 시 실시간 속성 탐색 100% 정상 가동
+2. **OS 전역 `F2` 키 감지 탑재 (`GetAsyncKeyState`)**:
+   - 스파이 창을 클릭하지 않고 다른 외부 윈도우(사내 ERP 등) 위에 마우스가 있는 상태에서도 키보드 **`F2`**를 누르면 즉시 동결 캡처(Freeze) 작동
+3. **스파이 창 자체 검사 방지 필터**:
+   - 스파이 창 내부 UI를 마우스로 가리킬 때 이전 캡처 타겟이 유지되도록 자기 자신(Self Window) 스캔 방지 필터 적용
+
+---
+
+
 
 ### 🔍 [신기능 탑재] Microsoft Windows UI Automation (UIA) Spy & 코드 생성기 내장
 

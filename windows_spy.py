@@ -2,7 +2,7 @@
 Windows UI Automation (UIA) Spy & Code Generator
 마이크로소프트 Windows UIA SDK 기반 실시간 데스크톱 엘리먼트 스파이 & 코드 생성기
 - 마우스 호버 시 실시간 요소 분석 (AutomationId, Name, ClassName, ControlType, Rect 등)
-- F2 키로 타겟 요소 동결/캡처 (Freeze & Capture)
+- 전역 F2 키 감지 (어떤 창에 마우스가 있어도 F2 누르면 즉시 동결 캡처)
 - 파이썬 UIA 제어 코드 및 4단계 Fallback 코드 자동 생성
 - 스튜디오 에디터 삽입 / 봇 에디터 모듈 카드 즉시 등록 연동
 """
@@ -11,6 +11,7 @@ import sys
 import os
 import time
 import threading
+import ctypes
 from typing import Dict, Any, Optional, Callable
 
 import customtkinter as ctk
@@ -25,6 +26,8 @@ try:
 except ImportError:
     HAS_WIN32 = False
 
+VK_F2 = 0x71  # F2 Virtual Key Code
+
 
 class WindowsSpyWindow(ctk.CTkToplevel):
     """실시간 Windows UIA 스파이 창"""
@@ -38,13 +41,14 @@ class WindowsSpyWindow(ctk.CTkToplevel):
         self.on_add_to_bot = on_add_to_bot
 
         self.title("🔍 Microsoft Windows UIA Spy & Element Inspector")
-        self.geometry("780x660")
-        self.minsize(680, 540)
+        self.geometry("820x680")
+        self.minsize(720, 560)
         self.attributes("-topmost", True)  # 항상 최상위 유지
 
         self.is_tracking = True
         self.is_frozen = False
         self.current_ctrl_info: Dict[str, Any] = {}
+        self._last_f2_time = 0
 
         self._build_ui()
         self._start_tracking_thread()
@@ -57,13 +61,13 @@ class WindowsSpyWindow(ctk.CTkToplevel):
         top_bar.pack(fill="x", padx=10, pady=(10, 6))
 
         self.lbl_status = ctk.CTkLabel(
-            top_bar, text="🟢 실시간 마우스 추적 중... (원하는 컨트롤에 마우스를 올리고 [F2 키] 또는 [캡처] 버튼 클릭)",
+            top_bar, text="🟢 실시간 마우스 추적 중... (타겟 창 위에서 [F2 키]를 누르면 즉시 동결 캡처됩니다)",
             font=ctk.CTkFont(size=12, weight="bold"), text_color="#81c784"
         )
         self.lbl_status.pack(side="left", padx=10, pady=8)
 
         self.btn_freeze = ctk.CTkButton(
-            top_bar, text="🎯 캡처 / 동결 (F2)", width=130, height=30,
+            top_bar, text="🎯 캡처 / 동결 (F2)", width=140, height=32,
             fg_color="#1f6aa5", hover_color="#144d75", font=ctk.CTkFont(weight="bold"),
             command=self.toggle_freeze
         )
@@ -93,7 +97,7 @@ class WindowsSpyWindow(ctk.CTkToplevel):
         # 6대 핵심 속성 표시 필드
         grid_f = ctk.CTkFrame(prop_frame, fg_color="transparent")
         grid_f.pack(fill="both", expand=True, padx=8, pady=4)
-        grid_f.grid_columnconfigure(0, weight=0, minsize=130)
+        grid_f.grid_columnconfigure(0, weight=0, minsize=140)
         grid_f.grid_columnconfigure(1, weight=1)
 
         fields = [
@@ -162,20 +166,44 @@ class WindowsSpyWindow(ctk.CTkToplevel):
         btn_copy.pack(side="right", padx=8, pady=6)
 
     # =========================================================================
-    # 실시간 마우스 위치 UIA 탐색 스레드
+    # 실시간 마우스 위치 UIA 탐색 스레드 (COM 스레드 초기화 & 전역 F2 감지)
     # =========================================================================
     def _start_tracking_thread(self):
         def _track():
-            while self.is_tracking:
-                if not self.is_frozen:
+            # 중요: 백그라운드 스레드에서 UIA COM 초기화
+            with uia.UIAutomationInitializerInThread():
+                while self.is_tracking:
+                    # 1. 전역 F2 키 감지 (어떤 창에 포커스가 있어도 작동)
                     try:
-                        ctrl = uia.ControlFromCursor()
-                        if ctrl:
-                            info = self._extract_control_info(ctrl)
-                            self.after(0, lambda inf=info: self._update_ui_fields(inf))
+                        if ctypes.windll.user32.GetAsyncKeyState(VK_F2) & 0x8000:
+                            now = time.time()
+                            if now - self._last_f2_time > 0.4:  # 디바운스
+                                self._last_f2_time = now
+                                self.after(0, self.toggle_freeze)
                     except Exception:
                         pass
-                time.sleep(0.15)
+
+                    # 2. 마우스 커서 위치의 UIA 컨트롤 분석
+                    if not self.is_frozen:
+                        try:
+                            ctrl = uia.ControlFromCursor()
+                            if ctrl:
+                                # 스파이 창 자체 요소는 무시 (스파이 창 밖의 타겟만 분석)
+                                try:
+                                    top_win = ctrl.GetTopLevelControl()
+                                    top_title = top_win.Name if top_win else ""
+                                    if "Microsoft Windows UIA Spy" in (top_title or ""):
+                                        time.sleep(0.1)
+                                        continue
+                                except Exception:
+                                    pass
+
+                                info = self._extract_control_info(ctrl)
+                                self.after(0, lambda inf=info: self._update_ui_fields(inf))
+                        except Exception:
+                            pass
+
+                    time.sleep(0.1)
 
         t = threading.Thread(target=_track, daemon=True)
         t.start()
@@ -253,13 +281,13 @@ class WindowsSpyWindow(ctk.CTkToplevel):
         if self.is_frozen:
             self.btn_freeze.configure(text="▶ 실시간 추적 재개 (F2)", fg_color="#2e7d32", hover_color="#1b5e20")
             self.lbl_status.configure(
-                text="🔴 [동결 완료] 요소 속성이 캡처되었습니다. 아래 코드를 에디터나 봇에 삽입하십시오.",
+                text="🔴 [동결 완료] 요소 속성이 캡처되었습니다! [F2 키]를 다시 누르면 실시간 추적을 재개합니다.",
                 text_color="#ff8a80"
             )
         else:
             self.btn_freeze.configure(text="🎯 캡처 / 동결 (F2)", fg_color="#1f6aa5", hover_color="#144d75")
             self.lbl_status.configure(
-                text="🟢 실시간 마우스 추적 중... (원하는 컨트롤에 마우스를 올리고 [F2 키] 클릭)",
+                text="🟢 실시간 마우스 추적 중... (타겟 창 위에서 [F2 키]를 누르면 즉시 동결 캡처됩니다)",
                 text_color="#81c784"
             )
 
