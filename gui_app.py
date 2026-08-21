@@ -256,14 +256,49 @@ class UBUSApp(ctk.CTk):
         scroll_snips = ctk.CTkScrollableFrame(snip_box)
         scroll_snips.pack(fill="both", expand=True, padx=6, pady=(0, 6))
 
+        def _make_category_toggle(btn_toggle, c_frame, cat_name):
+            state = {"open": False}
+            def _toggle():
+                state["open"] = not state["open"]
+                if state["open"]:
+                    btn_toggle.configure(text=f"▼ {cat_name}", fg_color="#1f4b75")
+                    c_frame.pack(fill="x", padx=(6, 0), pady=(2, 4))
+                else:
+                    btn_toggle.configure(text=f"▶ {cat_name}", fg_color="#262626")
+                    c_frame.pack_forget()
+            return _toggle
+
         for category, items in SNIPPET_CATEGORIES.items():
-            ctk.CTkLabel(scroll_snips, text=category, font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6").pack(anchor="w", pady=(8, 2))
+            cat_wrapper = ctk.CTkFrame(scroll_snips, fg_color="transparent")
+            cat_wrapper.pack(fill="x", pady=2)
+
+            content_frame = ctk.CTkFrame(cat_wrapper, fg_color="transparent")
+
+            btn_cat = ctk.CTkButton(
+                cat_wrapper,
+                text=f"▶ {category}",
+                anchor="w",
+                height=30,
+                fg_color="#262626",
+                hover_color="#383838",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#64b5f6"
+            )
+            btn_cat.pack(fill="x")
+            btn_cat.configure(command=_make_category_toggle(btn_cat, content_frame, category))
+
             for item in items:
-                ctk.CTkButton(
-                    scroll_snips, text=f"+ {item['name']}", anchor="w", height=26,
-                    fg_color="#333333", hover_color="#1f6aa5", font=ctk.CTkFont(size=11),
+                btn_snip = ctk.CTkButton(
+                    content_frame,
+                    text=f"+ {item['name']}",
+                    anchor="w",
+                    height=26,
+                    fg_color="#333333",
+                    hover_color="#1f6aa5",
+                    font=ctk.CTkFont(size=11),
                     command=lambda c=item["code"]: self._insert_snippet(c)
-                ).pack(fill="x", pady=1)
+                )
+                btn_snip.pack(fill="x", pady=1)
 
         # 우: 에디터 + 콘솔
         editor_frame = ctk.CTkFrame(body, corner_radius=6)

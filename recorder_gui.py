@@ -222,16 +222,40 @@ class RecorderGUI(ctk.CTk):
         scroll_snippets = ctk.CTkScrollableFrame(snippet_box)
         scroll_snippets.pack(fill="both", expand=True, padx=6, pady=(0, 6))
 
+        def _make_category_toggle(btn_toggle, c_frame, cat_name):
+            state = {"open": False}
+            def _toggle():
+                state["open"] = not state["open"]
+                if state["open"]:
+                    btn_toggle.configure(text=f"▼ {cat_name}", fg_color="#1f4b75")
+                    c_frame.pack(fill="x", padx=(6, 0), pady=(2, 4))
+                else:
+                    btn_toggle.configure(text=f"▶ {cat_name}", fg_color="#262626")
+                    c_frame.pack_forget()
+            return _toggle
+
         for category, items in SNIPPET_CATEGORIES.items():
-            cat_label = ctk.CTkLabel(
-                scroll_snippets, text=category, font=ctk.CTkFont(size=12, weight="bold"),
+            cat_wrapper = ctk.CTkFrame(scroll_snippets, fg_color="transparent")
+            cat_wrapper.pack(fill="x", pady=2)
+
+            content_frame = ctk.CTkFrame(cat_wrapper, fg_color="transparent")
+
+            btn_cat = ctk.CTkButton(
+                cat_wrapper,
+                text=f"▶ {category}",
+                anchor="w",
+                height=30,
+                fg_color="#262626",
+                hover_color="#383838",
+                font=ctk.CTkFont(size=12, weight="bold"),
                 text_color="#64b5f6"
             )
-            cat_label.pack(anchor="w", pady=(8, 2))
+            btn_cat.pack(fill="x")
+            btn_cat.configure(command=_make_category_toggle(btn_cat, content_frame, category))
 
             for item in items:
                 btn_snip = ctk.CTkButton(
-                    scroll_snippets,
+                    content_frame,
                     text=f"+ {item['name']}",
                     anchor="w",
                     height=26,
@@ -241,6 +265,8 @@ class RecorderGUI(ctk.CTk):
                     command=lambda code=item["code"]: self.insert_snippet_code(code)
                 )
                 btn_snip.pack(fill="x", pady=1)
+
+            # 기본값: 모두 접기 (content_frame 미배치)
 
         # 우측: 코드 텍스트 에디터 + 콘솔 출력 창
         editor_box = ctk.CTkFrame(body_frame, corner_radius=6)
