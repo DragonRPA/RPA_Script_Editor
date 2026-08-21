@@ -1,6 +1,22 @@
 # RELEASE_NOTES.md
 
-## [v2.2.2.Build.17] - 2026-08-21 17:42
+## [v2.2.3.Build.18] - 2026-08-21 17:43
+
+### 🛡️ [AI 프롬프트 표준화] 전사 RPA 아키텍처 자동 주입 시스템 프롬프트(System Instruction) 고도화
+
+1. **사용자 프롬프트 작성 부담 제로화 (자동 시스템 프롬프트 주입)**:
+   - 사용자는 복잡한 엔지니어링 지시(Playwright 옵션, Fallback 규칙 등)를 적을 필요 없이 **"오직 시킬 비즈니스 동작(예: 계약번호 검색 후 1행 더블클릭)"**만 1줄 적으면 됨
+   - 백그라운드에서 전사 표준 시스템 프롬프트가 Gemini/Ollama에 100% 자동 결합되어 전송됨
+2. **자동 주입되는 5대 엔지니어링 표준**:
+   - `args=['--start-maximized']` + `no_viewport=True` (하얀 여백 없는 100% 전체화면)
+   - `page.goto("{target_url}")` 및 `page.wait_for_load_state("domcontentloaded")` 자동 네비게이션
+   - Placeholder + Label 인접 DOM + Name + AG-Grid(`.ag-row`) 결합 다중 Fallback 셀렉터
+   - 요소 조작 전 `locator.wait_for(state="visible", timeout=5000)` 가시성 대기
+   - 실시간 `print(">>> [단계] ...")` 콘솔 로깅 및 예외 처리
+
+---
+
+
 
 ### 🎨 [UI/UX 개편] AI 비전 입력창 3대 영역(이미지/클립보드 + URL + 자연어) 완전 분리 지원
 
