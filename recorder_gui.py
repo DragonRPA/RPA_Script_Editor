@@ -914,13 +914,18 @@ class RecorderGUI(ctk.CTk):
                 with open(temp_py, "w", encoding="utf-8") as f:
                     f.write(code)
 
+                env = os.environ.copy()
+                env["PYTHONIOENCODING"] = "utf-8"
+                env["PYTHONUTF8"] = "1"
+
                 p = subprocess.Popen(
-                    [sys.executable, temp_py],
+                    [sys.executable, "-u", temp_py],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
                     encoding="utf-8",
                     errors="replace",
+                    env=env,
                     creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
                 )
                 for line in p.stdout:

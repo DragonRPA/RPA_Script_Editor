@@ -9,6 +9,62 @@ from typing import Dict, List
 SNIPPET_CATEGORIES: Dict[str, List[Dict[str, str]]] = {
 
     # =========================================================================
+    # 🐞 디버그 및 콘솔 로그
+    # =========================================================================
+    "🐞 디버그 및 콘솔 로그 (Debug & Logs)": [
+        {
+            "name": "단계별 구분선 로그 출력",
+            "desc": "콘솔에서 한눈에 구분할 수 있는 단계별 구분선 및 시간 출력",
+            "code": "print(f\"\\n{'='*50}\\n>>> [단계 진행] {time.strftime('%H:%M:%S')} - 작업 시작...\\n{'='*50}\")"
+        },
+        {
+            "name": "변수 값 실시간 디버그 출력",
+            "desc": "루프 변수나 계약번호, 파일 경로 등의 현재 값을 콘솔에 출력",
+            "code": "print(f\"[DEBUG 변수] 계약번호: {item.get('계약번호', '없음')} | 파일경로: {item.get('file_path', '없음')}\")"
+        },
+        {
+            "name": "현재 웹페이지 URL 및 타이틀 출력",
+            "desc": "브라우저가 올바른 페이지에 도착했는지 확인",
+            "code": "print(f\"[DEBUG 브라우저] 현재 URL: {page.url} | 페이지 제목: {page.title()}\")"
+        },
+        {
+            "name": "타겟 요소(Locator) 개수 및 가시성 검사",
+            "desc": "클릭이나 입력 전에 해당 요소가 화면에 몇 개 존재하는지 검사",
+            "code": """_loc = page.locator("input[name*='contract']")
+print(f"[DEBUG 요소 검사] 검색된 요소 수: {_loc.count()}개 | 가시성: {_loc.first.is_visible() if _loc.count() > 0 else False}")"""
+        },
+        {
+            "name": "요소 텍스트(Text) 내용 출력",
+            "desc": "특정 테이블 행이나 안내 라벨의 실제 텍스트 값 확인",
+            "code": """_elem = page.locator("table tbody tr").first
+print(f"[DEBUG 요소 텍스트] {_elem.inner_text() if _elem.count() > 0 else '요소 없음'}")"""
+        },
+        {
+            "name": "작업 소요시간 정밀 측정",
+            "desc": "특정 구간의 실행 속도(초)를 콘솔에 출력",
+            "code": """_start_time = time.time()
+# 측정할 작업 코드 삽입 위치
+print(f"[소요시간] 작업 완료: {time.time() - _start_time:.2f}초 소요")"""
+        },
+        {
+            "name": "안전한 예외 처리 및 에러 로깅",
+            "desc": "try-except로 에러 발생 시에도 중단되지 않고 상세 로그 출력",
+            "code": """try:
+    # 실행할 자동화 코드
+    page.locator("input[name*='contract']").fill(contract_no)
+except Exception as err:
+    print(f"[ERROR 에러 발생] {type(err).__name__}: {err}")"""
+        },
+        {
+            "name": "디버깅용 화면 스크린샷 캡처",
+            "desc": "에러 발생 시점의 웹 화면을 이미지 파일로 저장",
+            "code": """_shot_file = f"debug_{int(time.time())}.png"
+page.screenshot(path=_shot_file)
+print(f"[DEBUG 스크린샷] 화면 캡처 저장 완료: {_shot_file}")"""
+        },
+    ],
+
+    # =========================================================================
     # 📁 템플릿
     # =========================================================================
     "📁 템플릿 (Templates)": [
