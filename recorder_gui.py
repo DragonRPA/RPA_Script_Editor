@@ -165,21 +165,28 @@ class RecorderGUI(ctk.CTk):
         btn_codegen.pack(side="left", padx=4, pady=6)
 
         btn_win_spy = ctk.CTkButton(
-            top_bar, text="🔍 Windows UIA Spy", width=170, height=34,
+            top_bar, text="🔍 Windows UIA Spy", width=160, height=34,
             fg_color="#4a148c", hover_color="#311b92", font=ctk.CTkFont(weight="bold"),
             command=self.open_windows_spy
         )
         btn_win_spy.pack(side="left", padx=4, pady=6)
 
+        btn_ai_vision = ctk.CTkButton(
+            top_bar, text="🤖 AI 비전 코드 생성", width=170, height=34,
+            fg_color="#00695c", hover_color="#004d40", font=ctk.CTkFont(weight="bold"),
+            command=self.open_ai_vision_generator
+        )
+        btn_ai_vision.pack(side="left", padx=4, pady=6)
+
         btn_convert_to_bot = ctk.CTkButton(
-            top_bar, text="🧩 스크립트 ➔ 봇 모듈로 변환", width=190, height=34,
+            top_bar, text="🧩 봇 모듈 변환", width=140, height=34,
             fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(weight="bold"),
             command=self._convert_script_to_bot_modules
         )
         btn_convert_to_bot.pack(side="left", padx=4, pady=6)
 
         btn_db_modules = ctk.CTkButton(
-            top_bar, text="☁️ DB 모듈", width=110, height=34,
+            top_bar, text="☁️ DB 모듈", width=100, height=34,
             fg_color="#6a1b9a", hover_color="#4a148c", command=self._open_db_modules_modal
         )
         btn_db_modules.pack(side="left", padx=4, pady=6)
@@ -362,11 +369,18 @@ class RecorderGUI(ctk.CTk):
         btn_load_bot_db.pack(side="left", padx=4, pady=6)
 
         btn_win_spy_bot = ctk.CTkButton(
-            bot_act_bar, text="🔍 Windows UIA Spy", width=150, height=32,
+            bot_act_bar, text="🔍 Windows UIA Spy", width=140, height=32,
             fg_color="#4a148c", hover_color="#311b92", font=ctk.CTkFont(weight="bold"),
             command=self.open_windows_spy
         )
         btn_win_spy_bot.pack(side="left", padx=4, pady=6)
+
+        btn_ai_vision_bot = ctk.CTkButton(
+            bot_act_bar, text="🤖 AI 비전 코드 생성", width=150, height=32,
+            fg_color="#00695c", hover_color="#004d40", font=ctk.CTkFont(weight="bold"),
+            command=self.open_ai_vision_generator
+        )
+        btn_ai_vision_bot.pack(side="left", padx=4, pady=6)
 
         btn_add_blank = ctk.CTkButton(
             bot_act_bar, text="+ 빈 모듈 추가", width=100, height=32,
@@ -1078,6 +1092,16 @@ class RecorderGUI(ctk.CTk):
             on_insert=lambda code: self.insert_snippet_code(code),
             on_add_bot=lambda mod: self._add_module_to_bot(mod)
         )
+
+    def open_ai_vision_generator(self):
+        """Google Gemini Vision AI 코드 & 셀렉터 생성기 창 열기"""
+        from ai_vision_agent import open_ai_vision_generator
+        open_ai_vision_generator(
+            self,
+            on_insert=lambda code: self.insert_snippet_code(code),
+            on_add_bot=lambda mod: self._add_module_to_bot(mod)
+        )
+
 
 
 

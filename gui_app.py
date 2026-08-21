@@ -217,17 +217,31 @@ class UBUSApp(ctk.CTk):
         top_bar.pack(fill="x", padx=6, pady=(4, 6))
 
         btn_run_py = ctk.CTkButton(
-            top_bar, text="▶ 단독 테스트 실행", width=140, height=34,
+            top_bar, text="▶ 단독 테스트 실행", width=130, height=34,
             fg_color="#2e7d32", hover_color="#1b5e20", font=ctk.CTkFont(weight="bold"),
             command=self._run_standalone_script
         )
-        btn_run_py.pack(side="left", padx=8, pady=6)
+        btn_run_py.pack(side="left", padx=6, pady=6)
+
+        btn_ai_vision = ctk.CTkButton(
+            top_bar, text="🤖 AI 비전 코드 생성", width=160, height=34,
+            fg_color="#00695c", hover_color="#004d40", font=ctk.CTkFont(weight="bold"),
+            command=self._open_ai_vision_generator
+        )
+        btn_ai_vision.pack(side="left", padx=4, pady=6)
+
+        btn_win_spy = ctk.CTkButton(
+            top_bar, text="🔍 Windows UIA Spy", width=160, height=34,
+            fg_color="#4a148c", hover_color="#311b92", font=ctk.CTkFont(weight="bold"),
+            command=self._open_windows_spy
+        )
+        btn_win_spy.pack(side="left", padx=4, pady=6)
 
         btn_db_modules = ctk.CTkButton(
-            top_bar, text="☁️ DB 모듈 라이브러리", width=160, height=34,
+            top_bar, text="☁️ DB 모듈", width=100, height=34,
             fg_color="#6a1b9a", hover_color="#4a148c", command=self._open_db_modules_modal
         )
-        btn_db_modules.pack(side="left", padx=6, pady=6)
+        btn_db_modules.pack(side="left", padx=4, pady=6)
 
         btn_save_py = ctk.CTkButton(
             top_bar, text="💾 스크립트 저장 (.py)", width=140, height=34,
@@ -1169,7 +1183,21 @@ if __name__ == "__main__":
             )
             if total > 0:
                 self.prog_bar.set(current / total)
-        self.after(0, _apply)
+    def _open_windows_spy(self):
+        """Microsoft Windows UIA Spy 창 열기"""
+        from windows_spy import open_windows_spy
+        open_windows_spy(
+            self,
+            on_insert=lambda code: self._insert_snippet(code)
+        )
+
+    def _open_ai_vision_generator(self):
+        """Google Gemini Vision AI 코드 & 셀렉터 생성기 창 열기"""
+        from ai_vision_agent import open_ai_vision_generator
+        open_ai_vision_generator(
+            self,
+            on_insert=lambda code: self._insert_snippet(code)
+        )
 
 
 def main():
