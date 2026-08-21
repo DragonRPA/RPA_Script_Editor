@@ -18,7 +18,7 @@ import customtkinter as ctk
 from scenario_model import ScenarioModel
 from browser_recorder import BrowserRecorder
 from snippets_library import SNIPPET_CATEGORIES
-from playwright_parser import parse_playwright_python_code
+from playwright_parser import parse_advanced_python_to_scenario
 from neon_db import NeonDBManager
 
 ctk.set_appearance_mode("Dark")
@@ -157,6 +157,13 @@ class RecorderGUI(ctk.CTk):
             fg_color="#1f6aa5", hover_color="#144d75", command=self.launch_codegen
         )
         btn_codegen.pack(side="left", padx=6, pady=6)
+
+        btn_convert_to_cards = ctk.CTkButton(
+            top_bar, text="🧩 스크립트 ➔ 스텝 카드로 변환", width=210, height=34,
+            fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(weight="bold"),
+            command=self._convert_current_script_to_cards
+        )
+        btn_convert_to_cards.pack(side="left", padx=6, pady=6)
 
         btn_db_modules = ctk.CTkButton(
             top_bar, text="☁️ DB 모듈 라이브러리", width=160, height=34,
@@ -638,24 +645,51 @@ class RecorderGUI(ctk.CTk):
                 messagebox.showwarning("입력 확인", "코드를 붙여넣어 주십시오.")
                 return
 
-            parsed_steps = parse_playwright_python_code(raw_code)
-            if not parsed_steps:
-                messagebox.showerror("변환 실패", "유효한 Playwright 동작 코드를 찾지 못했습니다.")
+            setup_s, loop_s = parse_advanced_python_to_scenario(raw_code)
+            all_steps = setup_s + loop_s
+            if not all_steps:
+                messagebox.showerror("변환 실패", "유효한 동작 코드를 찾지 못했습니다.")
                 return
 
             is_loop = (var_target_zone.get() == "loop")
-            for ps in parsed_steps:
+            for ps in all_steps:
                 step = self.scenario.create_step(ps["action"], ps["target"], ps["value"], ps["title"])
                 self.scenario.add_step(step, is_loop=is_loop)
 
             self._refresh_step_lists()
             modal.destroy()
-            messagebox.showinfo("가져오기 완료", f"총 {len(parsed_steps)}개의 스텝 카드가 성공적으로 생성되었습니다!")
+            messagebox.showinfo("가져오기 완료", f"총 {len(all_steps)}개의 스텝 카드가 성공적으로 생성되었습니다!")
 
         ctk.CTkButton(
             modal, text="시나리오 스텝으로 변환하기", height=36, fg_color="#1f6aa5", hover_color="#144d75",
             font=ctk.CTkFont(weight="bold"), command=_do_import
         ).pack(fill="x", padx=16, pady=(6, 16))
+
+    def _convert_current_script_to_cards(self):
+        """현재 에디터의 파이썬 코드를 분석하여 비주얼 스텝 카드로 변환하고 카드 탭으로 이동"""
+        code = self.txt_script_editor.get("1.0", "end").strip()
+        if not code:
+            messagebox.showwarning("입력 확인", "에디터에 변환할 파이썬 코드가 없습니다.")
+            return
+
+        setup_steps, loop_steps = parse_advanced_python_to_scenario(code)
+        if not setup_steps and not loop_steps:
+            messagebox.showerror("변환 실패", "유효한 동작 스텝을 추출하지 못했습니다.")
+            return
+
+        self.scenario.setup_steps = setup_steps
+        self.scenario.loop_steps = loop_steps
+        self._refresh_step_lists()
+
+        # 카드 에디터 탭으로 자동 전환
+        self.tabview.set("🧩 비주얼 스텝 카드 에디터")
+        messagebox.showinfo(
+            "변환 완료",
+            f"✅ 파이썬 스크립트가 스텝 카드로 변환되었습니다!\n\n"
+            f"• 1회 실행(Setup) 영역: {len(setup_steps)}개 카드\n"
+            f"• 반복 실행(Loop) 영역: {len(loop_steps)}개 카드"
+        )
+
 
     def _load_neon_url(self) -> str:
         """Neon DB 연결 URL 불러오기"""

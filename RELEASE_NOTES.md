@@ -1,6 +1,24 @@
 # RELEASE_NOTES.md
 
-## [v1.3.0.Build.5] - 2026-08-21 15:46
+## [v1.4.0.Build.6] - 2026-08-21 15:48
+
+### 🧩 [지능형 파서] 파이썬 스크립트 ➔ 비주얼 스텝 카드 즉시 변환 엔진 탑재
+
+1. **에디터 툴바 `[🧩 스크립트 ➔ 스텝 카드로 변환]` 직통 원클릭 버튼 추가**:
+   - 파이썬 스크립트 에디터에서 작성 중인 코드를 클릭 한 번으로 파싱
+   - 1회 실행(Setup)과 반복 루프(Loop) 영역으로 지능적 자동 분류
+   - 변환 즉시 `[🧩 비주얼 스텝 카드 에디터]` 탭으로 화면 자동 전환 및 카드 렌더링
+2. **지능형 파서 엔진(`playwright_parser.py`) 대폭 강화**:
+   - `goto`, `fill`, `click`, `dblclick`, `set_input_files`, `check`, `select_option`, `wait_for_timeout`, `wait_for_selector`, `press` 지원
+   - `find_and_focus_window`, `pyautogui.click` 좌표 클릭, `PIXEL_MATCH` 지원
+   - `item['계약번호']` ➔ `{{계약번호}}`, `item['file_path']` ➔ `{{첨부파일_경로}}` 자동 변수 매핑
+   - 기타 커스텀 파이썬 구문은 `EXEC_CODE` 카드로 안전 보존
+3. **전사 Neon DB 모듈(`neon_db.py`) 동기화**:
+   - `Universal_RPA_Recorder` 및 `UBUS_contract` 양방향 100% 동기화 유지
+
+---
+
+
 
 ### ☁️ [모듈형 RPA] Neon DB 기반 `rpa_scripts` 라이브러리 및 에디터 관리 모달 구축 완료
 
