@@ -101,6 +101,22 @@ class NeonDBManager:
                         status VARCHAR(50) DEFAULT 'RUNNING'
                     );
                 """)
+
+                # 4. 완성 봇 저장소 (rpa_bots)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS rpa_bots (
+                        id SERIAL PRIMARY KEY,
+                        name VARCHAR(100) UNIQUE NOT NULL,
+                        title VARCHAR(100) NOT NULL,
+                        description TEXT,
+                        modules JSONB DEFAULT '[]'::jsonb,
+                        combined_code TEXT NOT NULL,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_rpa_bots_name ON rpa_bots(name);
+                """)
                 conn.commit()
                 return True
         finally:
@@ -327,6 +343,89 @@ def robust_click(page, css_selector: str, uia_auto_id: str,
                 return inserted_id
         finally:
             conn.close()
+
+    # =========================================================================
+    # 완성 봇 (rpa_bots) CRUD
+    # =========================================================================
+
+    def save_bot(self, name: str, title: str, modules: List[Dict[str, Any]],
+                 combined_code: str, description: str = "", is_active: bool = True) -> int:
+        """완성 봇을 Neon DB에 저장 또는 업데이트 (UPSERT)"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO rpa_bots (
+                        name, title, description, modules, combined_code, is_active, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (name) DO UPDATE SET
+                        title         = EXCLUDED.title,
+                        description   = EXCLUDED.description,
+                        modules       = EXCLUDED.modules,
+                        combined_code = EXCLUDED.combined_code,
+                        is_active     = EXCLUDED.is_active,
+                        updated_at    = NOW()
+                    RETURNING id;
+                """, (
+                    name,
+                    title,
+                    description,
+                    json.dumps(modules, ensure_ascii=False),
+                    combined_code,
+                    is_active
+                ))
+                bot_id = cur.fetchone()["id"]
+                conn.commit()
+                return bot_id
+        finally:
+            conn.close()
+
+    def get_bot(self, name: str) -> Optional[Dict[str, Any]]:
+        """특정 봇 단건 조회 (모듈 목록 파싱 포함)"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, name, title, description, modules, combined_code, is_active, updated_at
+                    FROM rpa_bots
+                    WHERE name = %s;
+                """, (name,))
+                row = cur.fetchone()
+                if row:
+                    d = dict(row)
+                    if isinstance(d.get("modules"), str):
+                        d["modules"] = json.loads(d["modules"])
+                    return d
+                return None
+        finally:
+            conn.close()
+
+    def list_bots(self, active_only: bool = True) -> List[Dict[str, Any]]:
+        """저장된 봇 목록 조회"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                query = "SELECT id, name, title, description, is_active, updated_at, jsonb_array_length(modules) as module_count FROM rpa_bots WHERE 1=1"
+                if active_only:
+                    query += " AND is_active = TRUE"
+                query += " ORDER BY id DESC;"
+                cur.execute(query)
+                return list(cur.fetchall())
+        finally:
+            conn.close()
+
+    def delete_bot(self, name: str) -> bool:
+        """봇 삭제"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM rpa_bots WHERE name = %s RETURNING id;", (name,))
+                deleted = cur.fetchone() is not None
+                conn.commit()
+                return deleted
+        finally:
+            conn.close()
+
 
     def fetch_recent_logs(self, limit: int = 20) -> List[Dict[str, Any]]:
         """최근 처리 이력 조회"""

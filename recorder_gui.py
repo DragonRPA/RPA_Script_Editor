@@ -1,6 +1,7 @@
 """
-Universal RPA Recorder - Studio GUI & Script IDE
-CustomTkinter 기반 범용 RPA 시나리오 녹화기 + 스니펫 지원형 파이썬 코드 에디터
+Universal RPA Recorder & Bot Builder
+범용 RPA 스크립트 IDE + 모듈 기반 2분할 봇 에디터 (Bot Builder)
+Playwright 웹 + 윈도우 데스크톱 4단계 Fallback + Neon Cloud DB 실시간 연동
 """
 
 import os
@@ -15,8 +16,6 @@ from typing import Dict, Any, List, Optional
 
 import customtkinter as ctk
 
-from scenario_model import ScenarioModel
-from browser_recorder import BrowserRecorder
 from snippets_library import SNIPPET_CATEGORIES
 from playwright_parser import parse_advanced_python_to_scenario
 from neon_db import NeonDBManager
@@ -53,9 +52,8 @@ def run(playwright):
     print(">>> 계약조회 화면 도착 완료!\\n")
 
     # -------------------------------------------------------------------------
-    # [2단계: PDF 건별 반복 루프] (좌측 스니펫 패널에서 버튼으로 추가 가능)
+    # [2단계: PDF 건별 반복 루프]
     # -------------------------------------------------------------------------
-    # [단일 테스트용 모의 데이터]
     test_items = [
         {"계약번호": "2D2607007", "file_path": "C:/UBUS_PDF/2_OCR완료/2D2607007.pdf"}
     ]
@@ -92,21 +90,23 @@ if __name__ == "__main__":
 
 
 class RecorderGUI(ctk.CTk):
-    """범용 RPA 시나리오 녹화 스튜디오 & 파이썬 스크립트 IDE"""
+    """Universal RPA 스튜디오 & 모듈형 봇 에디터 메인 GUI"""
+
+    _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recorder_config.json")
 
     def __init__(self):
         super().__init__()
 
-        self.title("범용 RPA 시나리오 스튜디오 (Universal RPA Studio & Script IDE)")
-        self.geometry("1280x880")
-        self.minsize(1080, 740)
+        self.title("범용 RPA 스튜디오 & 봇 에디터 (Universal RPA Studio & Bot Builder)")
+        self.geometry("1400x900")
+        self.minsize(1180, 760)
 
-        self.scenario = ScenarioModel()
-        self.recorder: Optional[BrowserRecorder] = None
-        self.is_loop_mode = False
+        # 봇 파이프라인 데이터 모델 (모듈 카드들의 리스트)
+        self.bot_modules: List[Dict[str, Any]] = []
+        self.db_manager = NeonDBManager(self._load_neon_url())
 
         self._build_ui()
-        self._refresh_step_lists()
+        self._load_default_bot_template()
 
     @property
     def txt_script_editor(self):
@@ -115,19 +115,19 @@ class RecorderGUI(ctk.CTk):
     def _build_ui(self):
         """메인 탭 레이아웃 구성"""
         self.tabview = ctk.CTkTabview(self, corner_radius=6)
-        self.tabview.pack(fill="both", expand=True, padx=12, pady=12)
+        self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.tab_script = self.tabview.add("🐍 파이썬 스크립트 에디터 (스니펫 지원)")
-        self.tab_cards = self.tabview.add("🧩 비주얼 스텝 카드 에디터")
+        self.tab_bot = self.tabview.add("🤖 봇 에디터 (Bot Builder)")
 
         self._build_script_tab()
-        self._build_cards_tab()
+        self._build_bot_tab()
 
-    # -------------------------------------------------------------------------
+    # =========================================================================
     # 탭 1: 스크립트 코드 에디터 (IDE)
-    # -------------------------------------------------------------------------
+    # =========================================================================
     def _build_script_tab(self):
-        # 0. 대상 URL 설정 행 (저장/복원 가능)
+        # 0. 대상 URL 설정 행
         url_bar = ctk.CTkFrame(self.tab_script, corner_radius=6)
         url_bar.pack(fill="x", padx=6, pady=(4, 0))
 
@@ -162,12 +162,12 @@ class RecorderGUI(ctk.CTk):
         )
         btn_codegen.pack(side="left", padx=6, pady=6)
 
-        btn_convert_to_cards = ctk.CTkButton(
-            top_bar, text="🧩 스크립트 ➔ 스텝 카드로 변환", width=210, height=34,
+        btn_convert_to_bot = ctk.CTkButton(
+            top_bar, text="🧩 스크립트 ➔ 봇 모듈로 변환", width=200, height=34,
             fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(weight="bold"),
-            command=self._convert_current_script_to_cards
+            command=self._convert_script_to_bot_modules
         )
-        btn_convert_to_cards.pack(side="left", padx=6, pady=6)
+        btn_convert_to_bot.pack(side="left", padx=6, pady=6)
 
         btn_db_modules = ctk.CTkButton(
             top_bar, text="☁️ DB 모듈 라이브러리", width=160, height=34,
@@ -200,7 +200,7 @@ class RecorderGUI(ctk.CTk):
         body_frame.grid_columnconfigure(1, weight=1)
         body_frame.grid_rowconfigure(0, weight=1)
 
-        # 2-1. 좌측: 스니펫 라이브러리 스크롤 패널
+        # 좌측: 스니펫 라이브러리
         snippet_box = ctk.CTkFrame(body_frame, width=290, corner_radius=6)
         snippet_box.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
 
@@ -215,7 +215,6 @@ class RecorderGUI(ctk.CTk):
         scroll_snippets = ctk.CTkScrollableFrame(snippet_box)
         scroll_snippets.pack(fill="both", expand=True, padx=6, pady=(0, 6))
 
-        # 카테고리별 스니펫 버튼 생성
         for category, items in SNIPPET_CATEGORIES.items():
             cat_label = ctk.CTkLabel(
                 scroll_snippets, text=category, font=ctk.CTkFont(size=12, weight="bold"),
@@ -236,29 +235,27 @@ class RecorderGUI(ctk.CTk):
                 )
                 btn_snip.pack(fill="x", pady=1)
 
-        # 2-2. 우측: 코드 텍스트 에디터 + 콘솔 출력 창
+        # 우측: 코드 텍스트 에디터 + 콘솔 출력 창
         editor_box = ctk.CTkFrame(body_frame, corner_radius=6)
         editor_box.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
-        editor_box.grid_rowconfigure(0, weight=3) # 코드 에디터
-        editor_box.grid_rowconfigure(1, weight=1) # 콘솔 로그
+        editor_box.grid_rowconfigure(0, weight=3)
+        editor_box.grid_rowconfigure(1, weight=1)
         editor_box.grid_columnconfigure(0, weight=1)
 
-        # 상부: 파이썬 코드 입력기
         self.txt_code = ctk.CTkTextbox(
             editor_box, font=ctk.CTkFont(family="Consolas", size=13), wrap="none"
         )
         self.txt_code.grid(row=0, column=0, padx=6, pady=(6, 3), sticky="nsew")
         self.txt_code.insert("1.0", DEFAULT_PYTHON_SCRIPT)
 
-        # 하부: 콘솔 로그 출력기
         console_frame = ctk.CTkFrame(editor_box, corner_radius=6)
         console_frame.grid(row=1, column=0, padx=6, pady=(3, 6), sticky="nsew")
 
-        con_head = ctk.CTkFrame(console_frame, fg_color="transparent")
-        con_head.pack(fill="x", padx=8, pady=(4, 2))
-        ctk.CTkLabel(con_head, text="💻 실시간 실행 콘솔 출력", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        c_top = ctk.CTkFrame(console_frame, fg_color="transparent")
+        c_top.pack(fill="x", padx=8, pady=(4, 2))
+        ctk.CTkLabel(c_top, text="💻 실시간 실행 콘솔 출력", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
         ctk.CTkButton(
-            con_head, text="로그 지우기", width=70, height=20, font=ctk.CTkFont(size=10),
+            c_top, text="로그 지우기", width=70, height=20, font=ctk.CTkFont(size=10),
             command=lambda: self.txt_console.delete("1.0", "end")
         ).pack(side="right")
 
@@ -267,425 +264,512 @@ class RecorderGUI(ctk.CTk):
         )
         self.txt_console.pack(fill="both", expand=True, padx=6, pady=(0, 6))
 
-    def insert_snippet_code(self, code_text: str):
-        """커서 위치에 스니펫 코드 삽입"""
-        self.txt_code.insert("insert", code_text + "\n")
-        self.txt_code.focus_set()
+    # =========================================================================
+    # 탭 2: 🤖 봇 에디터 (Bot Builder - 2분할 모듈형 조립 스튜디오)
+    # =========================================================================
+    def _build_bot_tab(self):
+        # 본문 2분할 (좌: 봇 조립 파이프라인 55% / 우: DB 모듈 라이브러리 45%)
+        bot_body = ctk.CTkFrame(self.tab_bot, corner_radius=6)
+        bot_body.pack(fill="both", expand=True, padx=4, pady=4)
+        bot_body.grid_columnconfigure(0, weight=6, minsize=520)
+        bot_body.grid_columnconfigure(1, weight=4, minsize=420)
+        bot_body.grid_rowconfigure(0, weight=1)
 
-    def run_current_script(self):
-        """현재 에디터의 파이썬 코드를 독립 서브프로세스로 안전하게 실행"""
-        code = self.txt_code.get("1.0", "end").strip()
-        if not code:
-            messagebox.showwarning("실행 확인", "실행할 코드가 없습니다.")
-            return
+        # ---------------------------------------------------------------------
+        # 👈 [좌측] 🤖 봇(Bot) 조립 파이프라인
+        # ---------------------------------------------------------------------
+        left_bot_frame = ctk.CTkFrame(bot_body, corner_radius=6)
+        left_bot_frame.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
 
-        self.txt_console.delete("1.0", "end")
-        self.txt_console.insert("end", "=== [스크립트 실행 시작] ===\n")
+        # 봇 헤더 메타데이터 바
+        bot_meta_bar = ctk.CTkFrame(left_bot_frame, fg_color="transparent")
+        bot_meta_bar.pack(fill="x", padx=8, pady=(8, 4))
+        bot_meta_bar.grid_columnconfigure((0, 1), weight=1)
 
-        # 임시 실행 파일 저장
-        temp_script_path = os.path.abspath("_temp_runner.py")
-        try:
-            with open(temp_script_path, "w", encoding="utf-8") as f:
-                f.write(code)
-        except Exception as e:
-            self.txt_console.insert("end", f"임시 파일 생성 실패: {e}\n")
-            return
+        # 봇 식별자 & 한글명 입력
+        f_bname = ctk.CTkFrame(bot_meta_bar, fg_color="transparent")
+        f_bname.grid(row=0, column=0, padx=(0, 4), sticky="ew")
+        ctk.CTkLabel(f_bname, text="봇 식별자 (영문 ID)", font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w")
+        self.ent_bot_name = ctk.CTkEntry(f_bname, height=28, placeholder_text="예: ubus_contract_bot")
+        self.ent_bot_name.pack(fill="x", pady=(1, 0))
+        self.ent_bot_name.insert(0, "ubus_contract_bot")
 
-        def _worker():
-            try:
-                proc = subprocess.Popen(
-                    [sys.executable, temp_script_path],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    bufsize=1
-                )
-                for line in proc.stdout:
-                    self.after(0, lambda l=line: self._append_console(l))
-                proc.wait()
-                self.after(0, lambda: self._append_console(f"\n=== [실행 완료 (종료 코드: {proc.returncode})] ===\n"))
-            except Exception as ex:
-                self.after(0, lambda: self._append_console(f"실행 예외: {ex}\n"))
-            finally:
-                if os.path.exists(temp_script_path):
-                    try:
-                        os.remove(temp_script_path)
-                    except Exception:
-                        pass
+        f_btitle = ctk.CTkFrame(bot_meta_bar, fg_color="transparent")
+        f_btitle.grid(row=0, column=1, padx=(4, 0), sticky="ew")
+        ctk.CTkLabel(f_btitle, text="봇 이름 (Title)", font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w")
+        self.ent_bot_title = ctk.CTkEntry(f_btitle, height=28, placeholder_text="예: UBUS ERP 계약서 자동 등록 봇")
+        self.ent_bot_title.pack(fill="x", pady=(1, 0))
+        self.ent_bot_title.insert(0, "UBUS ERP 계약서 자동 등록 봇")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        # 봇 액션 툴바
+        bot_act_bar = ctk.CTkFrame(left_bot_frame, corner_radius=6)
+        bot_act_bar.pack(fill="x", padx=8, pady=4)
 
-    def _append_console(self, text: str):
-        self.txt_console.insert("end", text)
-        self.txt_console.see("end")
-
-    def save_python_file(self):
-        filepath = filedialog.asksaveasfilename(
-            defaultextension=".py",
-            filetypes=[("파이썬 스크립트", "*.py")],
-            initialfile="rpa_custom_scenario.py"
+        btn_run_bot = ctk.CTkButton(
+            bot_act_bar, text="▶ 봇 전체 실행", width=130, height=32,
+            fg_color="#2e7d32", hover_color="#1b5e20", font=ctk.CTkFont(weight="bold"),
+            command=self._run_entire_bot
         )
-        if filepath:
-            try:
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(self.txt_code.get("1.0", "end"))
-                messagebox.showinfo("저장 완료", f"스크립트가 성공적으로 저장되었습니다:\n{filepath}")
-            except Exception as e:
-                messagebox.showerror("저장 오류", f"파일 저장 실패: {e}")
+        btn_run_bot.pack(side="left", padx=(6, 4), pady=6)
 
-    def load_python_file(self):
-        filepath = filedialog.askopenfilename(filetypes=[("파이썬 스크립트", "*.py")])
-        if filepath:
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    content = f.read()
-                self.txt_code.delete("1.0", "end")
-                self.txt_code.insert("1.0", content)
-                messagebox.showinfo("불러오기 완료", f"스크립트를 성공적으로 불러왔습니다:\n{filepath}")
-            except Exception as e:
-                messagebox.showerror("로드 오류", f"파일 로드 실패: {e}")
-
-    def reset_python_code(self):
-        self.txt_code.delete("1.0", "end")
-        self.txt_code.insert("1.0", DEFAULT_PYTHON_SCRIPT)
-
-    # -------------------------------------------------------------------------
-    # 탭 2: 비주얼 스텝 카드 에디터
-    # -------------------------------------------------------------------------
-    def _build_cards_tab(self):
-        top_frame = ctk.CTkFrame(self.tab_cards, corner_radius=6)
-        top_frame.pack(fill="x", padx=8, pady=(4, 6))
-
-        url_box = ctk.CTkFrame(top_frame, fg_color="transparent")
-        url_box.pack(fill="x", padx=12, pady=(6, 4))
-        
-        ctk.CTkLabel(url_box, text="대상 웹사이트 URL", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w")
-        self.entry_url = ctk.CTkEntry(url_box, height=32)
-        self.entry_url.pack(fill="x", pady=(2, 0))
-        self.entry_url.insert(0, "http://175.119.156.105:3000")
-
-        bar = ctk.CTkFrame(top_frame, fg_color="transparent")
-        bar.pack(fill="x", padx=12, pady=(4, 8))
-
-        self.btn_record = ctk.CTkButton(
-            bar, text="실시간 녹화 시작", width=130, height=34, fg_color="#992222", hover_color="#771111",
-            font=ctk.CTkFont(weight="bold"), command=self.toggle_recording
+        btn_save_bot_db = ctk.CTkButton(
+            bot_act_bar, text="💾 봇 DB 저장", width=110, height=32,
+            fg_color="#6a1b9a", hover_color="#4a148c", font=ctk.CTkFont(weight="bold"),
+            command=self._save_bot_to_db
         )
-        self.btn_record.pack(side="left", padx=(0, 6))
+        btn_save_bot_db.pack(side="left", padx=4, pady=6)
 
-        self.btn_mode = ctk.CTkButton(
-            bar, text="현재 녹화 모드: [1회 실행 영역]", width=220, height=34,
-            fg_color="#3a3a3a", hover_color="#2a2a2a", command=self.toggle_record_mode
+        btn_load_bot_db = ctk.CTkButton(
+            bot_act_bar, text="📂 봇 DB 불러오기", width=120, height=32,
+            fg_color="#1f6aa5", hover_color="#144d75",
+            command=self._open_load_bot_modal
         )
-        self.btn_mode.pack(side="left", padx=6)
+        btn_load_bot_db.pack(side="left", padx=4, pady=6)
 
-        btn_import_code = ctk.CTkButton(
-            bar, text="📋 인스펙터 코드 가져오기", width=170, height=34,
-            fg_color="#d97706", hover_color="#b45309", command=self.open_code_importer
+        btn_add_blank = ctk.CTkButton(
+            bot_act_bar, text="+ 빈 모듈 추가", width=100, height=32,
+            fg_color="#444444", hover_color="#333333",
+            command=self._add_blank_module_to_bot
         )
-        btn_import_code.pack(side="left", padx=6)
+        btn_add_blank.pack(side="right", padx=(4, 6), pady=6)
 
-        self.btn_save = ctk.CTkButton(
-            bar, text="시나리오 저장 (JSON)", width=130, height=34,
-            fg_color="#1f6aa5", hover_color="#144d75", command=self.save_scenario
+        btn_clear_bot = ctk.CTkButton(
+            bot_act_bar, text="초기화", width=70, height=32,
+            fg_color="#772222", hover_color="#551111",
+            command=self._clear_bot_modules
         )
-        self.btn_save.pack(side="right", padx=(6, 0))
+        btn_clear_bot.pack(side="right", padx=4, pady=6)
 
-        self.btn_load = ctk.CTkButton(
-            bar, text="시나리오 불러오기", width=120, height=34,
-            fg_color="#444444", hover_color="#333333", command=self.load_scenario
+        # 봇 모듈 카드 스크롤 영역
+        self.scroll_bot_modules = ctk.CTkScrollableFrame(left_bot_frame, corner_radius=6)
+        self.scroll_bot_modules.pack(fill="both", expand=True, padx=8, pady=(2, 8))
+
+        # ---------------------------------------------------------------------
+        # 👉 [우측] 🗄️ Neon DB 모듈 라이브러리
+        # ---------------------------------------------------------------------
+        right_db_frame = ctk.CTkFrame(bot_body, corner_radius=6)
+        right_db_frame.grid(row=0, column=1, padx=(0, 6), pady=6, sticky="nsew")
+
+        r_head = ctk.CTkFrame(right_db_frame, fg_color="transparent")
+        r_head.pack(fill="x", padx=8, pady=(8, 4))
+        ctk.CTkLabel(r_head, text="🗄️ Neon DB 모듈 저장소", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+
+        ctk.CTkButton(
+            r_head, text="🔄 새로고침", width=75, height=24, font=ctk.CTkFont(size=11),
+            command=self._refresh_db_module_list
+        ).pack(side="right")
+
+        # 필터 & 검색 바
+        filter_bar = ctk.CTkFrame(right_db_frame, fg_color="transparent")
+        filter_bar.pack(fill="x", padx=8, pady=(0, 6))
+
+        self.cbo_bot_cat_filter = ctk.CTkComboBox(
+            filter_bar, values=["전체", "로그인", "웹조작", "윈도우앱", "OCR", "DB", "스니펫", "유틸", "사용자정의"],
+            width=120, height=28, command=lambda _: self._refresh_db_module_list()
         )
-        self.btn_load.pack(side="right", padx=6)
+        self.cbo_bot_cat_filter.pack(side="left", padx=(0, 6))
+        self.cbo_bot_cat_filter.set("전체")
 
-        # 2분할 카드 뷰
-        body = ctk.CTkFrame(self.tab_cards, corner_radius=6)
-        body.pack(fill="both", expand=True, padx=8, pady=4)
-        body.grid_columnconfigure((0, 1), weight=1, uniform="c_cols")
-        body.grid_rowconfigure(0, weight=1)
+        self.ent_search_db = ctk.CTkEntry(filter_bar, height=28, placeholder_text="🔍 모듈 검색...")
+        self.ent_search_db.pack(side="left", fill="x", expand=True)
+        self.ent_search_db.bind("<KeyRelease>", lambda _: self._refresh_db_module_list())
 
-        # 좌: 1회
-        self.frame_setup = ctk.CTkFrame(body)
-        self.frame_setup.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
+        # DB 모듈 스크롤 목록
+        self.scroll_db_modules = ctk.CTkScrollableFrame(right_db_frame, corner_radius=6)
+        self.scroll_db_modules.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
-        f_setup_head = ctk.CTkFrame(self.frame_setup, fg_color="transparent")
-        f_setup_head.pack(fill="x", padx=10, pady=6)
-        ctk.CTkLabel(f_setup_head, text="[1회 실행 영역] 로그인 및 초기 세션", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
-        ctk.CTkButton(f_setup_head, text="+ 스텝 추가", width=80, height=24, command=lambda: self._add_manual_step(False)).pack(side="right")
+        self._refresh_db_module_list()
 
-        self.scroll_setup = ctk.CTkScrollableFrame(self.frame_setup)
-        self.scroll_setup.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+    # =========================================================================
+    # 봇 파이프라인 카드 렌더링 & 제어 로직
+    # =========================================================================
+    def _render_bot_cards(self):
+        """좌측 봇 파이프라인의 모듈 카드들을 다시 렌더링"""
+        for w in self.scroll_bot_modules.winfo_children():
+            w.destroy()
 
-        # 우: 반복
-        self.frame_loop = ctk.CTkFrame(body)
-        self.frame_loop.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
-
-        f_loop_head = ctk.CTkFrame(self.frame_loop, fg_color="transparent")
-        f_loop_head.pack(fill="x", padx=10, pady=6)
-        ctk.CTkLabel(f_loop_head, text="[반복 실행 영역] 데이터 건별 루프", font=ctk.CTkFont(size=13, weight="bold"), text_color="#64b5f6").pack(side="left")
-        ctk.CTkButton(f_loop_head, text="+ 스텝 추가", width=80, height=24, command=lambda: self._add_manual_step(True)).pack(side="right")
-
-        self.scroll_loop = ctk.CTkScrollableFrame(self.frame_loop)
-        self.scroll_loop.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-
-        self.lbl_status = ctk.CTkLabel(
-            self.tab_cards, text="준비 완료. [실시간 녹화 시작]을 누르면 브라우저 화면에 빨간색 타겟 박스와 배지가 표시됩니다.",
-            font=ctk.CTkFont(size=12), text_color="#aaaaaa"
-        )
-        self.lbl_status.pack(anchor="w", padx=16, pady=(2, 6))
-
-    # -------------------------------------------------------------------------
-    # 녹화 제어
-    # -------------------------------------------------------------------------
-    def toggle_recording(self):
-        if self.recorder and self.recorder.is_recording:
-            self.recorder.stop()
-            self.recorder = None
-            self.btn_record.configure(text="실시간 녹화 시작", fg_color="#992222")
-            self.lbl_status.configure(text="녹화가 중지되었습니다. 스텝 카드를 검토하고 저장하십시오.", text_color="#aaaaaa")
-        else:
-            url = self.entry_url.get().strip()
-            self.btn_record.configure(text="녹화 중지 (Stop)", fg_color="#555555")
-            self.lbl_status.configure(
-                text="🔴 실시간 녹화 중: 브라우저에 마우스를 올리면 [빨간 박스]가 뜨며, 클릭/입력 시 카드가 즉시 생성됩니다.",
-                text_color="#ff5555"
+        if not self.bot_modules:
+            empty_lbl = ctk.CTkLabel(
+                self.scroll_bot_modules,
+                text="🤖 조립된 모듈이 없습니다.\n우측 Neon DB 목록에서 [➕ 봇에 모듈 삽입 ➔] 버튼을 눌러 모듈을 추가하십시오.",
+                font=ctk.CTkFont(size=12), text_color="#aaaaaa"
             )
-            self.recorder = BrowserRecorder(self._on_action_captured_async)
-            self.recorder.start(url)
+            empty_lbl.pack(pady=40)
+            return
 
-    # -------------------------------------------------------------------------
-    # URL 설정 저장/복원 (config.json 기반)
-    # -------------------------------------------------------------------------
-    _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recorder_config.json")
+        for idx, mod in enumerate(self.bot_modules):
+            card = ctk.CTkFrame(self.scroll_bot_modules, corner_radius=8, fg_color="#262626", border_width=1, border_color="#3a3a3a")
+            card.pack(fill="x", pady=6, padx=4)
 
-    def _load_script_url(self) -> str:
-        """저장된 대상 URL 복원 (없으면 기본값 반환)"""
+            # 1행: 헤더 (순번, 카테고리, 제목, 액션 버튼들)
+            head = ctk.CTkFrame(card, fg_color="transparent")
+            head.pack(fill="x", padx=10, pady=(8, 4))
+
+            cat = mod.get("category", "웹조작")
+            title = mod.get("title", f"모듈 {idx + 1}")
+            name = mod.get("name", f"mod_{idx + 1}")
+
+            ctk.CTkLabel(
+                head, text=f"Module {idx + 1}.", font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6"
+            ).pack(side="left", padx=(0, 4))
+
+            ctk.CTkLabel(
+                head, text=f"[{cat}]", font=ctk.CTkFont(size=11, weight="bold"), text_color="#81c784"
+            ).pack(side="left", padx=(0, 6))
+
+            ctk.CTkLabel(
+                head, text=title, font=ctk.CTkFont(size=12, weight="bold")
+            ).pack(side="left", padx=(0, 4))
+
+            ctk.CTkLabel(
+                head, text=f"({name})", font=ctk.CTkFont(size=10), text_color="#888888"
+            ).pack(side="left")
+
+            # 우측 액션 버튼들
+            ctk.CTkButton(
+                head, text="✕", width=24, height=22, fg_color="#772222", hover_color="#551111",
+                command=lambda i=idx: self._delete_bot_module(i)
+            ).pack(side="right", padx=(4, 0))
+
+            if idx < len(self.bot_modules) - 1:
+                ctk.CTkButton(
+                    head, text="▼", width=24, height=22, fg_color="#3a3a3a", hover_color="#222222",
+                    command=lambda i=idx: self._move_bot_module(i, 1)
+                ).pack(side="right", padx=2)
+
+            if idx > 0:
+                ctk.CTkButton(
+                    head, text="▲", width=24, height=22, fg_color="#3a3a3a", hover_color="#222222",
+                    command=lambda i=idx: self._move_bot_module(i, -1)
+                ).pack(side="right", padx=2)
+
+            ctk.CTkButton(
+                head, text="▶ 단독실행", width=75, height=22, fg_color="#2e7d32", hover_color="#1b5e20",
+                font=ctk.CTkFont(size=10, weight="bold"), command=lambda i=idx: self._run_single_module(i)
+            ).pack(side="right", padx=4)
+
+            ctk.CTkButton(
+                head, text="💾 DB저장", width=65, height=22, fg_color="#6a1b9a", hover_color="#4a148c",
+                font=ctk.CTkFont(size=10), command=lambda m=mod, i=idx: self._save_single_module_to_db(m, i)
+            ).pack(side="right", padx=2)
+
+            # 2행: 인라인 파이썬 코드 에디터
+            f_code = ctk.CTkFrame(card, fg_color="transparent")
+            f_code.pack(fill="both", expand=True, padx=10, pady=(2, 8))
+
+            txt_card_code = ctk.CTkTextbox(
+                f_code, height=140, font=ctk.CTkFont(family="Consolas", size=11),
+                fg_color="#181818", wrap="none"
+            )
+            txt_card_code.pack(fill="both", expand=True)
+            txt_card_code.insert("1.0", mod.get("code", ""))
+
+            # 코드 포커스 아웃 시 실시간 모델 동기화
+            txt_card_code.bind(
+                "<FocusOut>",
+                lambda e, m=mod, t=txt_card_code: self._sync_card_code(m, t.get("1.0", "end").strip())
+            )
+
+    def _sync_card_code(self, mod_dict: Dict[str, Any], new_code: str):
+        mod_dict["code"] = new_code
+
+    def _add_module_to_bot(self, mod_data: Dict[str, Any]):
+        """우측 DB에서 모듈을 복사하여 좌측 봇 파이프라인에 추가"""
+        new_card = {
+            "name": mod_data.get("name", "custom_mod"),
+            "title": mod_data.get("title", "신규 모듈"),
+            "category": mod_data.get("category", "웹조작"),
+            "description": mod_data.get("description", ""),
+            "code": mod_data.get("code", "")
+        }
+        self.bot_modules.append(new_card)
+        self._render_bot_cards()
+
+    def _add_blank_module_to_bot(self):
+        """빈 파이썬 모듈 카드 추가"""
+        count = len(self.bot_modules) + 1
+        new_card = {
+            "name": f"step_{count}",
+            "title": f"사용자 정의 모듈 {count}",
+            "category": "사용자정의",
+            "description": "파이썬 자동화 스크립트 모듈",
+            "code": f"# [모듈 {count}: 사용자 정의 동작]\nprint('모듈 {count} 실행 중...')\n"
+        }
+        self.bot_modules.append(new_card)
+        self._render_bot_cards()
+
+    def _delete_bot_module(self, index: int):
+        if 0 <= index < len(self.bot_modules):
+            self.bot_modules.pop(index)
+            self._render_bot_cards()
+
+    def _move_bot_module(self, index: int, delta: int):
+        new_idx = index + delta
+        if 0 <= new_idx < len(self.bot_modules):
+            item = self.bot_modules.pop(index)
+            self.bot_modules.insert(new_idx, item)
+            self._render_bot_cards()
+
+    def _clear_bot_modules(self):
+        if messagebox.askyesno("초기화 확인", "현재 조립된 봇 모듈을 모두 초기화하시겠습니까?"):
+            self.bot_modules = []
+            self._render_bot_cards()
+
+    def _load_default_bot_template(self):
+        """초기 기본 봇 템플릿 로드 (DB에서 핵심 모듈 자동 배치)"""
         try:
-            if os.path.exists(self._CONFIG_FILE):
-                with open(self._CONFIG_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f).get("target_url", "http://175.119.156.105:3000")
+            mods = self.db_manager.list_scripts()
+            if mods:
+                for m_meta in mods[:3]:
+                    m_full = self.db_manager.get_script(m_meta["name"])
+                    if m_full:
+                        self.bot_modules.append(m_full)
+            self._render_bot_cards()
         except Exception:
             pass
-        return "http://175.119.156.105:3000"
 
-    def _save_script_url(self):
-        """현재 대상 URL을 config 파일에 저장"""
-        url = self.entry_script_url.get().strip()
+    # =========================================================================
+    # 우측: Neon DB 모듈 라이브러리 목록 렌더링
+    # =========================================================================
+    def _refresh_db_module_list(self):
+        for w in self.scroll_db_modules.winfo_children():
+            w.destroy()
+
+        cat_filter = self.cbo_bot_cat_filter.get()
+        cat_val = None if cat_filter == "전체" else cat_filter
+        search_kw = self.ent_search_db.get().strip().lower()
+
         try:
-            existing = {}
-            if os.path.exists(self._CONFIG_FILE):
-                with open(self._CONFIG_FILE, "r", encoding="utf-8") as f:
-                    existing = json.load(f)
-            existing["target_url"] = url
-            with open(self._CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(existing, f, ensure_ascii=False, indent=2)
-            # 비주얼 피드백: 버튼 텍스트 1.5초간 변경
-            from tkinter import messagebox
-            messagebox.showinfo("저장 완료", f"대상 URL이 저장되었습니다:\n{url}")
+            mods = self.db_manager.list_scripts(category=cat_val)
+            if not mods:
+                ctk.CTkLabel(
+                    self.scroll_db_modules, text="저장된 모듈이 없습니다.", font=ctk.CTkFont(size=11)
+                ).pack(pady=30)
+                return
+
+            rendered_count = 0
+            for m in mods:
+                if search_kw:
+                    if search_kw not in m["title"].lower() and search_kw not in m["name"].lower() and search_kw not in (m.get("description") or "").lower():
+                        continue
+
+                rendered_count += 1
+                card = ctk.CTkFrame(self.scroll_db_modules, corner_radius=6, fg_color="#2b2b2b")
+                card.pack(fill="x", pady=4, padx=2)
+
+                top_r = ctk.CTkFrame(card, fg_color="transparent")
+                top_r.pack(fill="x", padx=8, pady=(6, 2))
+
+                ctk.CTkLabel(
+                    top_r, text=f"[{m['category']}]", font=ctk.CTkFont(size=10, weight="bold"), text_color="#64b5f6"
+                ).pack(side="left")
+
+                ctk.CTkLabel(
+                    top_r, text=m['title'], font=ctk.CTkFont(size=12, weight="bold")
+                ).pack(side="left", padx=6)
+
+                ctk.CTkLabel(
+                    top_r, text=m['name'], font=ctk.CTkFont(size=10), text_color="#888888"
+                ).pack(side="right")
+
+                if m.get("description"):
+                    ctk.CTkLabel(
+                        card, text=m["description"], font=ctk.CTkFont(size=10), text_color="#aaaaaa", anchor="w"
+                    ).pack(fill="x", padx=8, pady=(0, 4))
+
+                # 삽입 버튼
+                btn_insert = ctk.CTkButton(
+                    card, text="➕ 봇에 모듈 삽입 ➔", height=28, fg_color="#00838f", hover_color="#006064",
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    command=lambda k=m["name"]: self._fetch_and_add_db_module(k)
+                )
+                btn_insert.pack(fill="x", padx=8, pady=(2, 6))
+
+            if rendered_count == 0:
+                ctk.CTkLabel(
+                    self.scroll_db_modules, text="검색 결과가 없습니다.", font=ctk.CTkFont(size=11)
+                ).pack(pady=20)
+
         except Exception as e:
-            from tkinter import messagebox
-            messagebox.showerror("저장 오류", f"URL 저장 실패: {e}")
+            ctk.CTkLabel(
+                self.scroll_db_modules, text=f"DB 연결 오류:\n{e}", text_color="#ff5555", font=ctk.CTkFont(size=11)
+            ).pack(pady=20)
 
-    def launch_codegen(self):
-        """저장된 대상 URL로 Playwright 비주얼 인스펙터(codegen) 실행"""
-        url = self.entry_script_url.get().strip() or "http://175.119.156.105:3000"
-        BrowserRecorder.launch_official_codegen(url)
+    def _fetch_and_add_db_module(self, mod_name: str):
+        try:
+            m = self.db_manager.get_script(mod_name)
+            if m:
+                self._add_module_to_bot(m)
+        except Exception as e:
+            messagebox.showerror("오류", f"모듈 가져오기 실패: {e}")
 
-    def toggle_record_mode(self):
-        self.is_loop_mode = not self.is_loop_mode
-        if self.is_loop_mode:
-            self.btn_mode.configure(text="현재 녹화 모드: [🔁 반복 실행 영역]", fg_color="#1f6aa5")
-        else:
-            self.btn_mode.configure(text="현재 녹화 모드: [1회 실행 영역]", fg_color="#3a3a3a")
+    def _save_single_module_to_db(self, mod_dict: Dict[str, Any], index: int):
+        """좌측 카드에서 직접 Neon DB rpa_scripts로 저장"""
+        name = mod_dict.get("name", f"mod_{index + 1}")
+        title = mod_dict.get("title", f"모듈 {index + 1}")
+        cat = mod_dict.get("category", "사용자정의")
+        desc = mod_dict.get("description", "")
+        code = mod_dict.get("code", "")
 
-    def _on_action_captured_async(self, event_data: Dict[str, Any]):
-        self.after(0, lambda: self._process_captured_event(event_data))
+        try:
+            self.db_manager.save_script(name, title, cat, code, desc)
+            self._refresh_db_module_list()
+            messagebox.showinfo("저장 완료", f"Neon DB에 모듈 '{title}'이(가) 저장되었습니다!")
+        except Exception as e:
+            messagebox.showerror("저장 오류", f"DB 저장 실패: {e}")
 
-    def _process_captured_event(self, event_data: Dict[str, Any]):
-        action = event_data.get("action", "")
-        target = event_data.get("target", "")
-        value = event_data.get("value", "")
-        text = event_data.get("elementText", "")
+    # =========================================================================
+    # 봇 전체 실행 및 DB 저장/불러오기
+    # =========================================================================
+    def _combine_bot_code(self) -> str:
+        """좌측 조립된 모든 모듈의 코드를 하나의 파이썬 스크립트로 결합"""
+        header = f"# =============================================================================\n" \
+                 f"# RPA Bot: {self.ent_bot_title.get()} ({self.ent_bot_name.get()})\n" \
+                 f"# Generated by Universal RPA Studio Bot Builder\n" \
+                 f"# =============================================================================\n\n"
+        
+        body_parts = []
+        for idx, m in enumerate(self.bot_modules, start=1):
+            part = f"# -----------------------------------------------------------------------------\n" \
+                   f"# [Module {idx}] {m.get('title', '')} ({m.get('name', '')})\n" \
+                   f"# -----------------------------------------------------------------------------\n" \
+                   f"{m.get('code', '').strip()}\n"
+            body_parts.append(part)
 
-        step = self.scenario.create_step(action, target, value, title=f"{action}: {text or target}")
-        self.scenario.add_step(step, is_loop=self.is_loop_mode)
-        self._refresh_step_lists()
-        self.lbl_status.configure(text=f"⚡ 동작 기록됨: [{action}] {text or target}", text_color="#64b5f6")
+        return header + "\n".join(body_parts)
 
-    def _refresh_step_lists(self):
-        for w in self.scroll_setup.winfo_children():
-            w.destroy()
-        for w in self.scroll_loop.winfo_children():
-            w.destroy()
+    def _run_entire_bot(self):
+        """조립된 봇 전체 결합 실행"""
+        if not self.bot_modules:
+            messagebox.showwarning("실행 확인", "실행할 모듈이 없습니다. 모듈을 먼저 추가하십시오.")
+            return
 
-        for idx, step in enumerate(self.scenario.setup_steps):
-            self._render_step_card(self.scroll_setup, step, idx, is_loop=False)
+        combined_code = self._combine_bot_code()
 
-        for idx, step in enumerate(self.scenario.loop_steps):
-            self._render_step_card(self.scroll_loop, step, idx, is_loop=True)
+        # 탭 1의 에디터와 콘솔에 코드 동기화 후 실행
+        self.txt_code.delete("1.0", "end")
+        self.txt_code.insert("1.0", combined_code)
+        self.tabview.set("🐍 파이썬 스크립트 에디터 (스니펫 지원)")
+        self.run_current_script()
 
-    def _render_step_card(self, parent, step: Dict[str, Any], index: int, is_loop: bool):
-        card = ctk.CTkFrame(parent, corner_radius=6, fg_color="#2b2b2b")
-        card.pack(fill="x", pady=4, padx=4)
+    def _run_single_module(self, index: int):
+        """특정 모듈 1개만 단독 테스트 실행"""
+        if 0 <= index < len(self.bot_modules):
+            m = self.bot_modules[index]
+            code = m.get("code", "").strip()
+            if not code:
+                messagebox.showwarning("실행 확인", "모듈 코드가 비어 있습니다.")
+                return
 
-        head = ctk.CTkFrame(card, fg_color="transparent")
-        head.pack(fill="x", padx=8, pady=(6, 2))
+            self.txt_code.delete("1.0", "end")
+            self.txt_code.insert("1.0", code)
+            self.tabview.set("🐍 파이썬 스크립트 에디터 (스니펫 지원)")
+            self.run_current_script()
 
-        ctk.CTkLabel(
-            head, text=f"Step {index + 1}. [{step.get('action')}]",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color="#64b5f6" if is_loop else "#ffffff"
-        ).pack(side="left")
+    def _save_bot_to_db(self):
+        """완성 봇을 Neon DB rpa_bots 테이블에 저장"""
+        name = self.ent_bot_name.get().strip()
+        title = self.ent_bot_title.get().strip()
 
-        ctk.CTkButton(
-            head, text="✕", width=22, height=22, fg_color="#772222", hover_color="#551111",
-            command=lambda sid=step['id']: self._delete_step(sid)
-        ).pack(side="right", padx=(4, 0))
+        if not name or not title:
+            messagebox.showwarning("입력 확인", "봇 식별자(영문)와 봇 이름(한글)은 필수 항목입니다.")
+            return
 
-        ctk.CTkButton(
-            head, text="반복으로 ➔" if not is_loop else "1회로 ➔", width=70, height=22,
-            fg_color="#3a3a3a", hover_color="#222222",
-            command=lambda sid=step['id'], loop=is_loop: self._switch_step_zone(sid, loop)
-        ).pack(side="right", padx=4)
+        if not self.bot_modules:
+            messagebox.showwarning("저장 확인", "저장할 모듈 카드가 없습니다.")
+            return
 
-        f_target = ctk.CTkFrame(card, fg_color="transparent")
-        f_target.pack(fill="x", padx=8, pady=2)
-        ctk.CTkLabel(f_target, text="대상 선택자 (Selector):", font=ctk.CTkFont(size=11)).pack(anchor="w")
-        e_target = ctk.CTkEntry(f_target, height=26, font=ctk.CTkFont(family="Consolas", size=11))
-        e_target.pack(fill="x", pady=(1, 0))
-        e_target.insert(0, step.get("target", ""))
-        e_target.bind("<FocusOut>", lambda e, s=step, ent=e_target: self._update_step_val(s, "target", ent.get()))
+        combined_code = self._combine_bot_code()
+        try:
+            bot_id = self.db_manager.save_bot(
+                name=name,
+                title=title,
+                modules=self.bot_modules,
+                combined_code=combined_code,
+                description=f"총 {len(self.bot_modules)}개 모듈로 구성된 자동화 봇"
+            )
+            messagebox.showinfo("저장 완료", f"Neon DB에 봇 '{title}' (ID: {bot_id})이(가) 성공적으로 저장되었습니다!")
+        except Exception as e:
+            messagebox.showerror("저장 오류", f"봇 DB 저장 실패: {e}")
 
-        # 모든 액션에 대해 값(Value) 또는 내용 필드 렌더링
-        has_val = step.get("action") in ["FILL", "SET_FILES", "GOTO", "SELECT_OPTION", "PRESS_KEY", "WAIT_TIME", "FIND_WINDOW", "KVM_CLICK", "PIXEL_MATCH", "EXEC_CODE"]
-        if has_val or step.get("value"):
-            f_val = ctk.CTkFrame(card, fg_color="transparent")
-            f_val.pack(fill="x", padx=8, pady=(2, 6))
-
-            v_head = ctk.CTkFrame(f_val, fg_color="transparent")
-            v_head.pack(fill="x")
-
-            val_label = "입력값 / 내용:"
-            if step.get("action") == "WAIT_TIME":
-                val_label = "대기 시간(ms):"
-            elif step.get("action") == "SET_FILES":
-                val_label = "파일 경로:"
-            elif step.get("action") == "GOTO":
-                val_label = "이동할 URL:"
-            elif step.get("action") == "PRESS_KEY":
-                val_label = "단축키/키명:"
-            elif step.get("action") == "EXEC_CODE":
-                val_label = "파이썬 코드 구문:"
-
-            ctk.CTkLabel(v_head, text=val_label, font=ctk.CTkFont(size=11)).pack(side="left")
-
-            ctk.CTkButton(
-                v_head, text="{{계약번호}}", width=65, height=18, font=ctk.CTkFont(size=10),
-                command=lambda ent=None, s=step: self._inject_variable(s, "{{계약번호}}")
-            ).pack(side="right", padx=2)
-
-            ctk.CTkButton(
-                v_head, text="{{첨부파일_경로}}", width=85, height=18, font=ctk.CTkFont(size=10),
-                command=lambda ent=None, s=step: self._inject_variable(s, "{{첨부파일_경로}}")
-            ).pack(side="right", padx=2)
-
-            e_val = ctk.CTkEntry(f_val, height=26, font=ctk.CTkFont(family="Consolas", size=11))
-            e_val.pack(fill="x", pady=(1, 0))
-            e_val.insert(0, step.get("value", ""))
-            e_val.bind("<FocusOut>", lambda e, s=step, ent=e_val: self._update_step_val(s, "value", ent.get()))
-
-    def _update_step_val(self, step: Dict[str, Any], key: str, value: str):
-        step[key] = value
-
-    def _inject_variable(self, step: Dict[str, Any], var_tag: str):
-        step["value"] = var_tag
-        self._refresh_step_lists()
-
-    def _delete_step(self, step_id: str):
-        self.scenario.remove_step(step_id)
-        self._refresh_step_lists()
-
-    def _switch_step_zone(self, step_id: str, is_currently_loop: bool):
-        if is_currently_loop:
-            self.scenario.move_to_setup(step_id)
-        else:
-            self.scenario.move_to_loop(step_id)
-        self._refresh_step_lists()
-
-    def _add_manual_step(self, is_loop: bool):
-        step = self.scenario.create_step("CLICK", "button:has-text('새버튼')", "", "신규 스텝")
-        self.scenario.add_step(step, is_loop=is_loop)
-        self._refresh_step_lists()
-
-    def save_scenario(self):
-        filepath = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("RPA 시나리오 파일", "*.json")],
-            initialfile="scenario.json"
-        )
-        if filepath:
-            ok = self.scenario.save_to_file(filepath)
-            if ok:
-                messagebox.showinfo("저장 완료", f"시나리오가 성공적으로 저장되었습니다:\n{filepath}")
-
-    def load_scenario(self):
-        filepath = filedialog.askopenfilename(filetypes=[("RPA 시나리오 파일", "*.json")])
-        if filepath:
-            ok = self.scenario.load_from_file(filepath)
-            if ok:
-                self._refresh_step_lists()
-                messagebox.showinfo("불러오기 완료", f"시나리오를 성공적으로 불러왔습니다:\n{filepath}")
-
-    def open_code_importer(self):
+    def _open_load_bot_modal(self):
+        """Neon DB에 저장된 봇 목록을 불러오는 모달 팝업"""
         modal = ctk.CTkToplevel(self)
-        modal.title("Playwright 인스펙터 코드 가져오기")
-        modal.geometry("700x520")
+        modal.title("📂 Neon DB 완성 봇 불러오기")
+        modal.geometry("600x480")
         modal.grab_set()
 
         ctk.CTkLabel(
-            modal, text="Playwright Inspector 화면의 코드를 복사하여 아래에 붙여넣으십시오:",
-            font=ctk.CTkFont(size=13, weight="bold")
-        ).pack(anchor="w", padx=16, pady=(16, 6))
+            modal, text="🗄️ 저장된 완성 봇(Bot) 목록", font=ctk.CTkFont(size=14, weight="bold")
+        ).pack(anchor="w", padx=16, pady=(16, 8))
 
-        txt_code = ctk.CTkTextbox(modal, font=ctk.CTkFont(family="Consolas", size=12))
-        txt_code.pack(fill="both", expand=True, padx=16, pady=6)
+        scroll = ctk.CTkScrollableFrame(modal)
+        scroll.pack(fill="both", expand=True, padx=16, pady=8)
 
-        zone_frame = ctk.CTkFrame(modal, fg_color="transparent")
-        zone_frame.pack(fill="x", padx=16, pady=6)
+        try:
+            bots = self.db_manager.list_bots()
+            if not bots:
+                ctk.CTkLabel(scroll, text="저장된 봇이 없습니다.", font=ctk.CTkFont(size=12)).pack(pady=30)
+            else:
+                for b in bots:
+                    card = ctk.CTkFrame(scroll, corner_radius=6, fg_color="#2b2b2b")
+                    card.pack(fill="x", pady=4)
 
-        var_target_zone = ctk.StringVar(value="setup")
-        ctk.CTkRadioButton(zone_frame, text="1회 실행 영역(Setup)으로 가져오기", variable=var_target_zone, value="setup").pack(side="left", padx=(0, 12))
-        ctk.CTkRadioButton(zone_frame, text="반복 실행 영역(Loop)으로 가져오기", variable=var_target_zone, value="loop").pack(side="left")
+                    top_f = ctk.CTkFrame(card, fg_color="transparent")
+                    top_f.pack(fill="x", padx=10, pady=(6, 2))
 
-        def _do_import():
-            raw_code = txt_code.get("1.0", "end").strip()
-            if not raw_code:
-                messagebox.showwarning("입력 확인", "코드를 붙여넣어 주십시오.")
-                return
+                    ctk.CTkLabel(
+                        top_f, text=b["title"], font=ctk.CTkFont(size=13, weight="bold")
+                    ).pack(side="left")
 
-            setup_s, loop_s = parse_advanced_python_to_scenario(raw_code)
-            all_steps = setup_s + loop_s
-            if not all_steps:
-                messagebox.showerror("변환 실패", "유효한 동작 코드를 찾지 못했습니다.")
-                return
+                    ctk.CTkLabel(
+                        top_f, text=f"({b['name']})", font=ctk.CTkFont(size=11), text_color="#888888"
+                    ).pack(side="left", padx=6)
 
-            is_loop = (var_target_zone.get() == "loop")
-            for ps in all_steps:
-                step = self.scenario.create_step(ps["action"], ps["target"], ps["value"], ps["title"])
-                self.scenario.add_step(step, is_loop=is_loop)
+                    # 불러오기 버튼
+                    ctk.CTkButton(
+                        top_f, text="불러오기 ➔", width=90, height=26, fg_color="#1f6aa5",
+                        command=lambda bname=b["name"]: _do_load_bot(bname)
+                    ).pack(side="right")
 
-            self._refresh_step_lists()
-            modal.destroy()
-            messagebox.showinfo("가져오기 완료", f"총 {len(all_steps)}개의 스텝 카드가 성공적으로 생성되었습니다!")
+                    ctk.CTkButton(
+                        top_f, text="삭제", width=50, height=26, fg_color="#772222", hover_color="#551111",
+                        command=lambda bname=b["name"]: _do_delete_bot(bname)
+                    ).pack(side="right", padx=4)
 
-        ctk.CTkButton(
-            modal, text="시나리오 스텝으로 변환하기", height=36, fg_color="#1f6aa5", hover_color="#144d75",
-            font=ctk.CTkFont(weight="bold"), command=_do_import
-        ).pack(fill="x", padx=16, pady=(6, 16))
+                    desc = b.get("description") or f"모듈 {b.get('module_count', 0)}개"
+                    ctk.CTkLabel(
+                        card, text=desc, font=ctk.CTkFont(size=10), text_color="#aaaaaa", anchor="w"
+                    ).pack(fill="x", padx=10, pady=(0, 6))
 
-    def _convert_current_script_to_cards(self):
-        """현재 에디터의 파이썬 코드를 분석하여 비주얼 스텝 카드로 변환하고 카드 탭으로 이동"""
+        except Exception as e:
+            ctk.CTkLabel(scroll, text=f"DB 조회 오류:\n{e}", text_color="#ff5555").pack(pady=20)
+
+        def _do_load_bot(bname: str):
+            try:
+                full_bot = self.db_manager.get_bot(bname)
+                if full_bot:
+                    self.ent_bot_name.delete(0, "end"); self.ent_bot_name.insert(0, full_bot.get("name", ""))
+                    self.ent_bot_title.delete(0, "end"); self.ent_bot_title.insert(0, full_bot.get("title", ""))
+                    self.bot_modules = full_bot.get("modules", [])
+                    self._render_bot_cards()
+                    modal.destroy()
+                    messagebox.showinfo("불러오기 완료", f"봇 '{full_bot.get('title')}'을(를) 성공적으로 불러왔습니다!")
+            except Exception as e:
+                messagebox.showerror("오류", f"봇 로드 실패: {e}")
+
+        def _do_delete_bot(bname: str):
+            if messagebox.askyesno("삭제 확인", f"정말로 봇 '{bname}'을(를) DB에서 삭제하시겠습니까?"):
+                try:
+                    self.db_manager.delete_bot(bname)
+                    modal.destroy()
+                    self._open_load_bot_modal()
+                    messagebox.showinfo("삭제 완료", f"봇 '{bname}'이(가) 삭제되었습니다.")
+                except Exception as e:
+                    messagebox.showerror("삭제 오류", f"삭제 실패: {e}")
+
+    def _convert_script_to_bot_modules(self):
+        """현재 에디터의 파이썬 코드를 분석하여 봇 모듈 카드로 변환하고 봇 에디터 탭으로 이동"""
         code = self.txt_code.get("1.0", "end").strip()
         if not code:
             messagebox.showwarning("입력 확인", "에디터에 변환할 파이썬 코드가 없습니다.")
@@ -696,31 +780,71 @@ class RecorderGUI(ctk.CTk):
             messagebox.showerror("변환 실패", "유효한 동작 스텝을 추출하지 못했습니다.")
             return
 
-        self.scenario.setup_steps = setup_steps
-        self.scenario.loop_steps = loop_steps
-        self._refresh_step_lists()
+        # Setup 스텝들을 모듈 1로 묶고, Loop 스텝들을 모듈 2로 묶음
+        new_modules = []
+        if setup_steps:
+            setup_code_lines = ["# [1회 실행 영역: 초기화 및 로그인]"]
+            for s in setup_steps:
+                if s["action"] == "GOTO":
+                    setup_code_lines.append(f"page.goto('{s['value']}')")
+                elif s["action"] == "FILL":
+                    setup_code_lines.append(f"page.locator(\"{s['target']}\").fill('{s['value']}')")
+                elif s["action"] == "CLICK":
+                    setup_code_lines.append(f"page.locator(\"{s['target']}\").click()")
+                elif s["action"] == "WAIT_TIME":
+                    setup_code_lines.append(f"page.wait_for_timeout({s['value']})")
+                else:
+                    setup_code_lines.append(s.get("value") or f"# {s['title']}")
 
-        # 카드 에디터 탭으로 자동 전환
-        self.tabview.set("🧩 비주얼 스텝 카드 에디터")
-        messagebox.showinfo(
-            "변환 완료",
-            f"✅ 파이썬 스크립트가 스텝 카드로 변환되었습니다!\n\n"
-            f"• 1회 실행(Setup) 영역: {len(setup_steps)}개 카드\n"
-            f"• 반복 실행(Loop) 영역: {len(loop_steps)}개 카드"
-        )
+            new_modules.append({
+                "name": "bot_setup_module",
+                "title": "초기 세션 및 로그인 모듈",
+                "category": "로그인",
+                "description": f"{len(setup_steps)}개 초기 설정 동작",
+                "code": "\n".join(setup_code_lines) + "\n"
+            })
 
+        if loop_steps:
+            loop_code_lines = ["# [반복 실행 영역: 건별 데이터 처리 루프]", "for item in pdf_items:"]
+            for s in loop_steps:
+                val = s['value']
+                if s["action"] == "FILL":
+                    loop_code_lines.append(f"    page.locator(\"{s['target']}\").fill({val if '{{' in val else repr(val)})")
+                elif s["action"] == "CLICK":
+                    loop_code_lines.append(f"    page.locator(\"{s['target']}\").click()")
+                elif s["action"] == "DBLCLICK":
+                    loop_code_lines.append(f"    page.locator(\"{s['target']}\").dblclick()")
+                elif s["action"] == "SET_FILES":
+                    loop_code_lines.append(f"    page.locator(\"{s['target']}\").set_input_files({val if '{{' in val else repr(val)})")
+                elif s["action"] == "WAIT_TIME":
+                    loop_code_lines.append(f"    page.wait_for_timeout({s['value']})")
+                else:
+                    loop_code_lines.append(f"    # {s['title']}")
 
+            new_modules.append({
+                "name": "bot_loop_module",
+                "title": "데이터 건별 반복 처리 모듈",
+                "category": "웹조작",
+                "description": f"{len(loop_steps)}개 반복 동작",
+                "code": "\n".join(loop_code_lines) + "\n"
+            })
 
+        self.bot_modules = new_modules
+        self._render_bot_cards()
+        self.tabview.set("🤖 봇 에디터 (Bot Builder)")
+        messagebox.showinfo("변환 완료", f"파이썬 코드가 총 {len(new_modules)}개의 봇 모듈로 변환되었습니다!")
+
+    # =========================================================================
+    # 공통 유틸리티 (URL 설정, Codegen, DB 모달, 파이썬 파일 I/O)
+    # =========================================================================
     def _load_neon_url(self) -> str:
         """Neon DB 연결 URL 불러오기"""
         try:
-            # 1. recorder_config.json 확인
             if os.path.exists(self._CONFIG_FILE):
                 with open(self._CONFIG_FILE, "r", encoding="utf-8") as f:
                     u = json.load(f).get("neon_database_url", "")
                     if u:
                         return u
-            # 2. UBUS_contract/config.json 확인
             ubus_cfg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "UBUS_contract", "config.json")
             if os.path.exists(ubus_cfg):
                 with open(ubus_cfg, "r", encoding="utf-8") as f:
@@ -729,208 +853,175 @@ class RecorderGUI(ctk.CTk):
             pass
         return "postgresql://neondb_owner:npg_W0LzlYBckKp1@ep-small-firefly-az3rp5ve.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
 
+    def _load_script_url(self) -> str:
+        try:
+            if os.path.exists(self._CONFIG_FILE):
+                with open(self._CONFIG_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f).get("target_url", "http://175.119.156.105:3000")
+        except Exception:
+            pass
+        return "http://175.119.156.105:3000"
+
+    def _save_script_url(self):
+        url = self.entry_script_url.get().strip()
+        try:
+            existing = {}
+            if os.path.exists(self._CONFIG_FILE):
+                with open(self._CONFIG_FILE, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+            existing["target_url"] = url
+            with open(self._CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(existing, f, ensure_ascii=False, indent=2)
+            messagebox.showinfo("저장 완료", f"대상 URL이 저장되었습니다:\n{url}")
+        except Exception as e:
+            messagebox.showerror("저장 오류", f"URL 저장 실패: {e}")
+
+    def launch_codegen(self):
+        """Playwright 비주얼 인스펙터(codegen) 실행"""
+        url = self.entry_script_url.get().strip() or "http://175.119.156.105:3000"
+        def _run():
+            cmd = [sys.executable, "-m", "playwright", "codegen", url]
+            subprocess.Popen(cmd, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def run_current_script(self):
+        """현재 에디터의 파이썬 코드 실행"""
+        code = self.txt_code.get("1.0", "end").strip()
+        if not code:
+            messagebox.showwarning("실행 확인", "실행할 코드가 없습니다.")
+            return
+
+        self.txt_console.delete("1.0", "end")
+        self.txt_console.insert("end", f"[{time.strftime('%H:%M:%S')}] ▶ RPA 파이썬 스크립트 실행 시작...\n")
+
+        def _worker():
+            temp_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_temp_run.py")
+            try:
+                with open(temp_py, "w", encoding="utf-8") as f:
+                    f.write(code)
+
+                p = subprocess.Popen(
+                    [sys.executable, temp_py],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                )
+                for line in p.stdout:
+                    self.after(0, lambda l=line: self.txt_console.insert("end", l))
+                    self.after(0, lambda: self.txt_console.see("end"))
+                p.wait()
+                self.after(0, lambda: self.txt_console.insert("end", f"\n[{time.strftime('%H:%M:%S')}] ✅ 실행 완료 (Exit Code: {p.returncode})\n"))
+            except Exception as ex:
+                self.after(0, lambda e=ex: self.txt_console.insert("end", f"\n[오류] {e}\n"))
+            finally:
+                if os.path.exists(temp_py):
+                    try:
+                        os.remove(temp_py)
+                    except Exception:
+                        pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def insert_snippet_code(self, snippet: str):
+        self.txt_code.insert("insert", "\n" + snippet + "\n")
+        self.txt_code.focus_set()
+
+    def save_python_file(self):
+        p = filedialog.asksaveasfilename(defaultextension=".py", filetypes=[("파이썬 파일", "*.py")], initialfile="custom_bot.py")
+        if p:
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(self.txt_code.get("1.0", "end"))
+            messagebox.showinfo("저장 완료", f"파일이 저장되었습니다:\n{p}")
+
+    def load_python_file(self):
+        p = filedialog.askopenfilename(filetypes=[("파이썬 파일", "*.py")])
+        if p:
+            with open(p, "r", encoding="utf-8") as f:
+                c = f.read()
+            self.txt_code.delete("1.0", "end")
+            self.txt_code.insert("1.0", c)
+
+    def reset_python_code(self):
+        if messagebox.askyesno("복원 확인", "기본 예제 스크립트로 초기화하시겠습니까?"):
+            self.txt_code.delete("1.0", "end")
+            self.txt_code.insert("1.0", DEFAULT_PYTHON_SCRIPT)
+
     def _open_db_modules_modal(self):
-        """Neon DB에 저장된 모듈형 RPA 스크립트 관리 및 불러오기/저장 모달"""
+        """DB 모듈 관리자 팝업"""
         modal = ctk.CTkToplevel(self)
-        modal.title("☁️ Neon DB 모듈형 RPA 스크립트 관리자 (rpa_scripts)")
-        modal.geometry("900x620")
+        modal.title("☁️ Neon DB 모듈 라이브러리 관리자")
+        modal.geometry("850x580")
         modal.grab_set()
 
-        db_url = self._load_neon_url()
-        db = NeonDBManager(db_url)
+        db = self.db_manager
 
-        # 전체 레이아웃 (좌: 모듈 목록 / 우: 모듈 편집 및 액션)
-        modal.grid_columnconfigure(0, weight=0, minsize=300)
+        modal.grid_columnconfigure(0, weight=0, minsize=280)
         modal.grid_columnconfigure(1, weight=1)
         modal.grid_rowconfigure(0, weight=1)
 
-        # ---------------------------------------------------------------------
-        # 좌측: 모듈 목록 패널
-        # ---------------------------------------------------------------------
-        left_frame = ctk.CTkFrame(modal, corner_radius=6)
-        left_frame.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
+        left = ctk.CTkFrame(modal, corner_radius=6)
+        left.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
 
-        l_head = ctk.CTkFrame(left_frame, fg_color="transparent")
-        l_head.pack(fill="x", padx=8, pady=(8, 4))
-        ctk.CTkLabel(l_head, text="🗄️ 저장된 모듈 목록", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+        ctk.CTkLabel(left, text="🗄️ 모듈 목록", font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=8, pady=(8, 4))
+        scroll_m = ctk.CTkScrollableFrame(left)
+        scroll_m.pack(fill="both", expand=True, padx=8, pady=4)
 
-        # 카테고리 필터
-        cbo_cat_filter = ctk.CTkComboBox(
-            left_frame, values=["전체", "로그인", "웹조작", "윈도우앱", "OCR", "스니펫", "유틸", "사용자정의"],
-            height=28
-        )
-        cbo_cat_filter.pack(fill="x", padx=8, pady=(0, 4))
-        cbo_cat_filter.set("전체")
+        right = ctk.CTkFrame(modal, corner_radius=6)
+        right.grid(row=0, column=1, padx=(0, 8), pady=8, sticky="nsew")
 
-        scroll_list = ctk.CTkScrollableFrame(left_frame, corner_radius=6)
-        scroll_list.pack(fill="both", expand=True, padx=8, pady=4)
+        ent_name = ctk.CTkEntry(right, placeholder_text="모듈 식별자 (예: ubus_login)")
+        ent_name.pack(fill="x", padx=8, pady=(8, 4))
 
-        # ---------------------------------------------------------------------
-        # 우측: 모듈 세부 정보 및 코드 편집
-        # ---------------------------------------------------------------------
-        right_frame = ctk.CTkFrame(modal, corner_radius=6)
-        right_frame.grid(row=0, column=1, padx=(0, 8), pady=8, sticky="nsew")
+        ent_title = ctk.CTkEntry(right, placeholder_text="모듈 한글명 (예: UBUS ERP 로그인)")
+        ent_title.pack(fill="x", padx=8, pady=4)
 
-        r_top = ctk.CTkFrame(right_frame, fg_color="transparent")
-        r_top.pack(fill="x", padx=10, pady=(10, 4))
-        r_top.grid_columnconfigure((0, 1), weight=1)
+        txt_c = ctk.CTkTextbox(right, font=ctk.CTkFont(family="Consolas", size=11), fg_color="#181818")
+        txt_c.pack(fill="both", expand=True, padx=8, pady=4)
 
-        # 모듈 식별자 (name)
-        f_name = ctk.CTkFrame(r_top, fg_color="transparent")
-        f_name.grid(row=0, column=0, padx=(0, 4), sticky="ew")
-        ctk.CTkLabel(f_name, text="모듈 식별자 (영문 ID)", font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w")
-        ent_mod_name = ctk.CTkEntry(f_name, height=28, placeholder_text="예: ubus_login")
-        ent_mod_name.pack(fill="x", pady=(2, 0))
+        b_row = ctk.CTkFrame(right, fg_color="transparent")
+        b_row.pack(fill="x", padx=8, pady=6)
 
-        # 모듈 한글명 (title)
-        f_title = ctk.CTkFrame(r_top, fg_color="transparent")
-        f_title.grid(row=0, column=1, padx=(4, 0), sticky="ew")
-        ctk.CTkLabel(f_title, text="모듈 한글명 (Title)", font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w")
-        ent_mod_title = ctk.CTkEntry(f_title, height=28, placeholder_text="예: UBUS ERP 로그인")
-        ent_mod_title.pack(fill="x", pady=(2, 0))
+        def _refresh():
+            for w in scroll_m.winfo_children():
+                w.destroy()
+            for item in db.list_scripts():
+                btn = ctk.CTkButton(
+                    scroll_m, text=f"[{item['category']}] {item['title']}", anchor="w",
+                    fg_color="#333333", hover_color="#1f6aa5",
+                    command=lambda k=item["name"]: _sel(k)
+                )
+                btn.pack(fill="x", pady=2)
 
-        # 2행: 카테고리 & 설명
-        r_mid = ctk.CTkFrame(right_frame, fg_color="transparent")
-        r_mid.pack(fill="x", padx=10, pady=2)
-        r_mid.grid_columnconfigure(0, weight=0, minsize=140)
-        r_mid.grid_columnconfigure(1, weight=1)
+        def _sel(k):
+            full = db.get_script(k)
+            if full:
+                ent_name.delete(0, "end"); ent_name.insert(0, full["name"])
+                ent_title.delete(0, "end"); ent_title.insert(0, full["title"])
+                txt_c.delete("1.0", "end"); txt_c.insert("1.0", full["code"])
 
-        f_cat = ctk.CTkFrame(r_mid, fg_color="transparent")
-        f_cat.grid(row=0, column=0, padx=(0, 4), sticky="ew")
-        ctk.CTkLabel(f_cat, text="카테고리", font=ctk.CTkFont(size=11)).pack(anchor="w")
-        cbo_mod_cat = ctk.CTkComboBox(f_cat, values=["로그인", "웹조작", "윈도우앱", "OCR", "스니펫", "유틸", "사용자정의"], height=28)
-        cbo_mod_cat.pack(fill="x", pady=(2, 0))
-        cbo_mod_cat.set("웹조작")
+        def _insert():
+            c = txt_c.get("1.0", "end").strip()
+            if c:
+                self.txt_code.insert("insert", f"\n{c}\n")
+                modal.destroy()
 
-        f_desc = ctk.CTkFrame(r_mid, fg_color="transparent")
-        f_desc.grid(row=0, column=1, padx=(4, 0), sticky="ew")
-        ctk.CTkLabel(f_desc, text="모듈 설명 / 필요 변수", font=ctk.CTkFont(size=11)).pack(anchor="w")
-        ent_mod_desc = ctk.CTkEntry(f_desc, height=28, placeholder_text="예: 계약번호 조회 후 상세 화면 진입")
-        ent_mod_desc.pack(fill="x", pady=(2, 0))
+        def _save():
+            n = ent_name.get().strip()
+            t = ent_title.get().strip()
+            c = txt_c.get("1.0", "end").strip()
+            if n and t and c:
+                db.save_script(n, t, "사용자정의", c)
+                _refresh()
+                self._refresh_db_module_list()
+                messagebox.showinfo("저장 완료", "모듈이 저장되었습니다!")
 
-        # 코드 에디터 박스
-        ctk.CTkLabel(right_frame, text="파이썬 모듈 코드 (Python Code)", font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w", padx=10, pady=(6, 2))
-        txt_mod_code = ctk.CTkTextbox(right_frame, font=ctk.CTkFont(family="Consolas", size=12), fg_color="#181818")
-        txt_mod_code.pack(fill="both", expand=True, padx=10, pady=(0, 6))
+        ctk.CTkButton(b_row, text="📋 에디터에 삽입", fg_color="#2e7d32", command=_insert).pack(side="left", padx=4)
+        ctk.CTkButton(b_row, text="💾 DB 저장", fg_color="#6a1b9a", command=_save).pack(side="left", padx=4)
 
-        # 하단 액션 버튼 바
-        b_bar = ctk.CTkFrame(right_frame, fg_color="transparent")
-        b_bar.pack(fill="x", padx=10, pady=(0, 10))
-
-        def _refresh_module_list():
-            for widget in scroll_list.winfo_children():
-                widget.destroy()
-
-            cat_filter = cbo_cat_filter.get()
-            cat_val = None if cat_filter == "전체" else cat_filter
-
-            try:
-                mods = db.list_scripts(category=cat_val)
-                if not mods:
-                    ctk.CTkLabel(scroll_list, text="저장된 모듈이 없습니다.", font=ctk.CTkFont(size=11)).pack(pady=20)
-                    return
-
-                for m in mods:
-                    card = ctk.CTkFrame(scroll_list, corner_radius=6, fg_color="#2b2b2b")
-                    card.pack(fill="x", pady=3)
-
-                    top_c = ctk.CTkFrame(card, fg_color="transparent")
-                    top_c.pack(fill="x", padx=6, pady=(4, 2))
-                    ctk.CTkLabel(top_c, text=f"[{m['category']}]", font=ctk.CTkFont(size=10, weight="bold"), text_color="#64b5f6").pack(side="left")
-                    ctk.CTkLabel(top_c, text=m['name'], font=ctk.CTkFont(size=10), text_color="#aaaaaa").pack(side="right")
-
-                    title_btn = ctk.CTkButton(
-                        card, text=m['title'], anchor="w", fg_color="transparent",
-                        hover_color="#3a3a3a", font=ctk.CTkFont(size=12, weight="bold"),
-                        command=lambda key=m['name']: _select_module(key)
-                    )
-                    title_btn.pack(fill="x", padx=4, pady=(0, 4))
-            except Exception as e:
-                ctk.CTkLabel(scroll_list, text=f"DB 조회 오류:\n{e}", text_color="#ff5555", font=ctk.CTkFont(size=11)).pack(pady=10)
-
-        def _select_module(mod_name: str):
-            try:
-                mod = db.get_script(mod_name)
-                if mod:
-                    ent_mod_name.delete(0, "end"); ent_mod_name.insert(0, mod.get("name", ""))
-                    ent_mod_title.delete(0, "end"); ent_mod_title.insert(0, mod.get("title", ""))
-                    cbo_mod_cat.set(mod.get("category", "웹조작"))
-                    ent_mod_desc.delete(0, "end"); ent_mod_desc.insert(0, mod.get("description", "") or "")
-                    txt_mod_code.delete("1.0", "end"); txt_mod_code.insert("1.0", mod.get("code", ""))
-            except Exception as e:
-                messagebox.showerror("오류", f"모듈 로드 실패: {e}")
-
-        def _insert_to_main_editor():
-            code = txt_mod_code.get("1.0", "end").strip()
-            if not code:
-                messagebox.showwarning("경고", "삽입할 코드가 없습니다.")
-                return
-            self.txt_code.insert("insert", f"\n{code}\n")
-            self.txt_code.focus_set()
-            modal.destroy()
-            messagebox.showinfo("삽입 완료", f"모듈 '{ent_mod_title.get()}' 코드가 에디터에 삽입되었습니다.")
-
-        def _save_to_neon_db():
-            name = ent_mod_name.get().strip()
-            title = ent_mod_title.get().strip()
-            cat = cbo_mod_cat.get().strip()
-            desc = ent_mod_desc.get().strip()
-            code = txt_mod_code.get("1.0", "end").strip()
-
-            if not name or not title or not code:
-                messagebox.showwarning("필수 입력", "식별자(영문), 한글명, 코드는 필수 입력 항목입니다.")
-                return
-
-            try:
-                db.save_script(name=name, title=title, category=cat, code=code, description=desc)
-                _refresh_module_list()
-                messagebox.showinfo("저장 완료", f"Neon DB에 모듈 '{title}'이(가) 성공적으로 저장되었습니다!")
-            except Exception as e:
-                messagebox.showerror("저장 오류", f"DB 저장 실패: {e}")
-
-        def _pull_from_main_editor():
-            cur_code = self.txt_code.get("1.0", "end").strip()
-            if not cur_code:
-                messagebox.showwarning("안내", "현재 에디터에 코드가 없습니다.")
-                return
-            txt_mod_code.delete("1.0", "end")
-            txt_mod_code.insert("1.0", cur_code)
-
-        def _delete_from_db():
-            name = ent_mod_name.get().strip()
-            if not name:
-                return
-            if messagebox.askyesno("삭제 확인", f"정말로 모듈 '{name}'을(를) DB에서 삭제하시겠습니까?"):
-                try:
-                    db.delete_script(name)
-                    _refresh_module_list()
-                    txt_mod_code.delete("1.0", "end")
-                    ent_mod_name.delete(0, "end")
-                    ent_mod_title.delete(0, "end")
-                    ent_mod_desc.delete(0, "end")
-                    messagebox.showinfo("삭제 완료", f"모듈 '{name}'이(가) 삭제되었습니다.")
-                except Exception as e:
-                    messagebox.showerror("삭제 오류", f"삭제 실패: {e}")
-
-        # 버튼 배치
-        ctk.CTkButton(b_bar, text="📋 에디터에 삽입", height=32, fg_color="#2e7d32", hover_color="#1b5e20",
-                      font=ctk.CTkFont(weight="bold"), command=_insert_to_main_editor).pack(side="left", padx=(0, 6))
-
-        ctk.CTkButton(b_bar, text="💾 Neon DB에 저장/수정", height=32, fg_color="#6a1b9a", hover_color="#4a148c",
-                      font=ctk.CTkFont(weight="bold"), command=_save_to_neon_db).pack(side="left", padx=6)
-
-        ctk.CTkButton(b_bar, text="✨ 현재 에디터 내용 가져오기", height=32, fg_color="#444444", hover_color="#333333",
-                      command=_pull_from_main_editor).pack(side="left", padx=6)
-
-        ctk.CTkButton(b_bar, text="🗑️ DB에서 삭제", height=32, fg_color="#c62828", hover_color="#8e0000",
-                      command=_delete_from_db).pack(side="right")
-
-        cbo_cat_filter.configure(command=lambda _: _refresh_module_list())
-        ctk.CTkButton(l_head, text="새로고침", width=60, height=22, font=ctk.CTkFont(size=10),
-                      command=_refresh_module_list).pack(side="right")
-
-        _refresh_module_list()
-
+        _refresh()
 
 
 def main():
