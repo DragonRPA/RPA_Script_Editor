@@ -130,6 +130,14 @@ for row_idx, row in enumerate(excel_rows, start=1):
     # =========================================================================
     "🖱️ 웹 조작 (Browser Actions)": [
         {
+            "name": "브라우저 최대화(전체화면) 기동",
+            "desc": "여백(하얀 부분) 없이 모니터 100% 꽉 찬 최대화 화면으로 기동",
+            "code": """# [브라우저 최대화 실행 (여백 없음)]
+browser = playwright.chromium.launch(headless=False, args=["--start-maximized"])
+context = browser.new_context(no_viewport=True)
+page = context.new_page()"""
+        },
+        {
             "name": "버튼 / 링크 클릭",
             "desc": "텍스트 기반 버튼 클릭",
             "code": 'page.get_by_role("button", name="조회").click()'

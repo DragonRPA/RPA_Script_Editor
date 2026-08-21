@@ -32,9 +32,9 @@ import time
 from playwright.sync_api import sync_playwright
 
 def run(playwright):
-    # 1. 브라우저 기동
-    browser = playwright.chromium.launch(headless=False)
-    context = browser.new_context()
+    # 1. 브라우저 최대화 기동 (여백 및 하얀 테두리 제거)
+    browser = playwright.chromium.launch(headless=False, args=["--start-maximized"])
+    context = browser.new_context(no_viewport=True)
     page = context.new_page()
 
     # -------------------------------------------------------------------------
@@ -49,6 +49,7 @@ def run(playwright):
     page.locator("a").filter(has_text=re.compile(r"^계약$")).click()
     page.locator("a").filter(has_text="계약조회").click()
     page.wait_for_load_state("domcontentloaded")
+    page.wait_for_timeout(1000)
     print(">>> 계약조회 화면 도착 완료!\\n")
 
     # -------------------------------------------------------------------------
@@ -63,15 +64,16 @@ def run(playwright):
         file_path = item["file_path"]
         print(f"[{idx}/{len(test_items)}] {contract_no} 작업 시작...")
 
-        # 계약번호 검색
-        contract_input = page.locator("label:has-text('계약번호') + input, input[name*='contract']").first
+        # 계약번호 검색 (포괄 셀렉터)
+        contract_input = page.locator("input[placeholder*='계약'], input[name*='contract'], div:has(> label:has-text('계약번호')) input, input[type='text']").first
+        contract_input.wait_for(state="visible", timeout=10000)
         contract_input.fill(contract_no)
-        page.get_by_role("button", name="조회").click()
+        page.locator("button:has-text('조회')").first.click()
 
-        # 결과 1행 더블클릭 및 파일 첨부
-        page.locator("table tbody tr").first.dblclick()
+        # 결과 1행 더블클릭 및 파일 첨부 (ag-grid / table 지원)
+        page.locator(".ag-row, table tbody tr").first.dblclick()
         page.locator("input[type='file']").first.set_input_files(file_path)
-        page.get_by_role("button", name="저장").click()
+        page.locator("button:has-text('저장')").first.click()
         page.wait_for_timeout(1000)
 
         print(f"[{idx}/{len(test_items)}] {contract_no} 등록 완료!")

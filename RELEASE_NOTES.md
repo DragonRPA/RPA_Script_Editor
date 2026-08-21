@@ -1,6 +1,21 @@
 # RELEASE_NOTES.md
 
-## [v2.1.4.Build.13] - 2026-08-21 17:02
+## [v2.1.5.Build.14] - 2026-08-21 17:29
+
+### 🖥️ [브라우저 최대화] 여백/하얀 테두리 없는 100% 전체화면 기동 표준 적용
+
+1. **Playwright 뷰포트 고정 해제 및 최대화 파라미터 적용**:
+   - `args=["--start-maximized"]` + `context = browser.new_context(no_viewport=True)` 표준 적용
+   - Playwright의 기본 `1280x720` 고정 뷰포트 시뮬레이션을 해제하여, 브라우저 창을 최대화했을 때 우측과 하단에 하얗게 남던 빈 공간(White Margin)을 100% 제거
+2. **UBUS ERP 계약조회 셀렉터 및 AG-Grid 연동 강화**:
+   - `input[placeholder*='계약']`, `div:has(> label:has-text('계약번호')) input` 등 포괄적 다중 셀렉터 적용
+   - UBUS 내 AG-Grid 테이블(`.ag-row`) 더블클릭 연동 지원
+3. **스니펫 라이브러리에 `브라우저 최대화(전체화면) 기동` 원클릭 스니펫 탑재**:
+   - `🖱️ 웹 조작 (Browser Actions)` 카테고리에 최대화 코드 추가
+
+---
+
+
 
 ### 📂 [UI/UX 개선] 스니펫 라이브러리 카테고리별 아코디언(접기/펼치기) 및 기본 모두 접기 탑재
 
