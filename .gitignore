@@ -1,0 +1,37 @@
+# Python 캐시 및 임시 파일
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 가상환경
+venv/
+env/
+ENV/
+
+# 임시 실행 파일
+_temp_runner.py
+_temp_standalone.py
+error_shots/
+
+# 설정 파일 (개인정보 포함)
+config.json
+
+# IDE 설정
+.vscode/
+.idea/
+*.suo
+*.user
+
+# 로그
+*.log
+
+# 운영체제
+.DS_Store
+Thumbs.db
+desktop.ini
