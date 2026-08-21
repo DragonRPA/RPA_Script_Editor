@@ -1,6 +1,27 @@
 # RELEASE_NOTES.md
 
-## [v1.2.0.Build.4] - 2026-08-21 15:38
+## [v1.3.0.Build.5] - 2026-08-21 15:46
+
+### ☁️ [모듈형 RPA] Neon DB 기반 `rpa_scripts` 라이브러리 및 에디터 관리 모달 구축 완료
+
+1. **`rpa_scripts` 단일 테이블 스키마 정식 가동**:
+   - Neon PostgreSQL 콘솔에서 DDL 생성 완료 (`name`, `title`, `category`, `description`, `code`, `target_type`, `is_active`, `created_at`, `updated_at`)
+   - 카테고리/식별자 복합 인덱스 가동
+2. **초기 핵심 모듈 4종 Neon DB 시드 등록**:
+   - `ubus_login`: UBUS ERP 로그인
+   - `contract_search_and_upload`: 계약번호 조회 및 PDF 첨부
+   - `find_and_focus_window`: 윈도우 앱 창 찾기 및 포커스 이동
+   - `robust_click_fallback`: 4단계 Fallback 자동 강등 클릭
+3. **에디터 UI `[☁️ DB 모듈 라이브러리]` 관리 모달 탑재**:
+   - `gui_app.py` & `recorder_gui.py` 공통 탑재
+   - 좌측 카테고리 필터별 DB 저장 모듈 목록 표시
+   - 원클릭 코드 에디터 삽입 (`[📋 에디터에 삽입]`)
+   - 현재 작성 중인 코드 즉시 DB 모듈로 등록/수정 (`[💾 Neon DB에 저장/수정]`)
+   - DB 모듈 단건 삭제 (`[🗑️ DB에서 삭제]`)
+
+---
+
+
 
 ### 🗄️ [클라우드 DB] Neon Serverless PostgreSQL 정식 연동 & 스키마 자동 구축 완료
 

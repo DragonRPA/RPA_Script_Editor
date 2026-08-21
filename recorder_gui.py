@@ -19,6 +19,7 @@ from scenario_model import ScenarioModel
 from browser_recorder import BrowserRecorder
 from snippets_library import SNIPPET_CATEGORIES
 from playwright_parser import parse_playwright_python_code
+from neon_db import NeonDBManager
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -152,10 +153,16 @@ class RecorderGUI(ctk.CTk):
         self.btn_run_script.pack(side="left", padx=8, pady=6)
 
         btn_codegen = ctk.CTkButton(
-            top_bar, text="Playwright 비주얼 인스펙터 열기", width=220, height=34,
+            top_bar, text="Playwright 비주얼 인스펙터 열기", width=210, height=34,
             fg_color="#1f6aa5", hover_color="#144d75", command=self.launch_codegen
         )
         btn_codegen.pack(side="left", padx=6, pady=6)
+
+        btn_db_modules = ctk.CTkButton(
+            top_bar, text="☁️ DB 모듈 라이브러리", width=160, height=34,
+            fg_color="#6a1b9a", hover_color="#4a148c", command=self._open_db_modules_modal
+        )
+        btn_db_modules.pack(side="left", padx=6, pady=6)
 
         btn_save_py = ctk.CTkButton(
             top_bar, text="💾 파이썬 저장 (.py)", width=130, height=34,
@@ -649,6 +656,227 @@ class RecorderGUI(ctk.CTk):
             modal, text="시나리오 스텝으로 변환하기", height=36, fg_color="#1f6aa5", hover_color="#144d75",
             font=ctk.CTkFont(weight="bold"), command=_do_import
         ).pack(fill="x", padx=16, pady=(6, 16))
+
+    def _load_neon_url(self) -> str:
+        """Neon DB 연결 URL 불러오기"""
+        try:
+            # 1. recorder_config.json 확인
+            if os.path.exists(self._CONFIG_FILE):
+                with open(self._CONFIG_FILE, "r", encoding="utf-8") as f:
+                    u = json.load(f).get("neon_database_url", "")
+                    if u:
+                        return u
+            # 2. UBUS_contract/config.json 확인
+            ubus_cfg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "UBUS_contract", "config.json")
+            if os.path.exists(ubus_cfg):
+                with open(ubus_cfg, "r", encoding="utf-8") as f:
+                    return json.load(f).get("neon_database_url", "")
+        except Exception:
+            pass
+        return "postgresql://neondb_owner:npg_W0LzlYBckKp1@ep-small-firefly-az3rp5ve.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
+
+    def _open_db_modules_modal(self):
+        """Neon DB에 저장된 모듈형 RPA 스크립트 관리 및 불러오기/저장 모달"""
+        modal = ctk.CTkToplevel(self)
+        modal.title("☁️ Neon DB 모듈형 RPA 스크립트 관리자 (rpa_scripts)")
+        modal.geometry("900x620")
+        modal.grab_set()
+
+        db_url = self._load_neon_url()
+        db = NeonDBManager(db_url)
+
+        # 전체 레이아웃 (좌: 모듈 목록 / 우: 모듈 편집 및 액션)
+        modal.grid_columnconfigure(0, weight=0, minsize=300)
+        modal.grid_columnconfigure(1, weight=1)
+        modal.grid_rowconfigure(0, weight=1)
+
+        # ---------------------------------------------------------------------
+        # 좌측: 모듈 목록 패널
+        # ---------------------------------------------------------------------
+        left_frame = ctk.CTkFrame(modal, corner_radius=6)
+        left_frame.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
+
+        l_head = ctk.CTkFrame(left_frame, fg_color="transparent")
+        l_head.pack(fill="x", padx=8, pady=(8, 4))
+        ctk.CTkLabel(l_head, text="🗄️ 저장된 모듈 목록", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+
+        # 카테고리 필터
+        cbo_cat_filter = ctk.CTkComboBox(
+            left_frame, values=["전체", "로그인", "웹조작", "윈도우앱", "OCR", "스니펫", "유틸", "사용자정의"],
+            height=28
+        )
+        cbo_cat_filter.pack(fill="x", padx=8, pady=(0, 4))
+        cbo_cat_filter.set("전체")
+
+        scroll_list = ctk.CTkScrollableFrame(left_frame, corner_radius=6)
+        scroll_list.pack(fill="both", expand=True, padx=8, pady=4)
+
+        # ---------------------------------------------------------------------
+        # 우측: 모듈 세부 정보 및 코드 편집
+        # ---------------------------------------------------------------------
+        right_frame = ctk.CTkFrame(modal, corner_radius=6)
+        right_frame.grid(row=0, column=1, padx=(0, 8), pady=8, sticky="nsew")
+
+        r_top = ctk.CTkFrame(right_frame, fg_color="transparent")
+        r_top.pack(fill="x", padx=10, pady=(10, 4))
+        r_top.grid_columnconfigure((0, 1), weight=1)
+
+        # 모듈 식별자 (name)
+        f_name = ctk.CTkFrame(r_top, fg_color="transparent")
+        f_name.grid(row=0, column=0, padx=(0, 4), sticky="ew")
+        ctk.CTkLabel(f_name, text="모듈 식별자 (영문 ID)", font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w")
+        ent_mod_name = ctk.CTkEntry(f_name, height=28, placeholder_text="예: ubus_login")
+        ent_mod_name.pack(fill="x", pady=(2, 0))
+
+        # 모듈 한글명 (title)
+        f_title = ctk.CTkFrame(r_top, fg_color="transparent")
+        f_title.grid(row=0, column=1, padx=(4, 0), sticky="ew")
+        ctk.CTkLabel(f_title, text="모듈 한글명 (Title)", font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w")
+        ent_mod_title = ctk.CTkEntry(f_title, height=28, placeholder_text="예: UBUS ERP 로그인")
+        ent_mod_title.pack(fill="x", pady=(2, 0))
+
+        # 2행: 카테고리 & 설명
+        r_mid = ctk.CTkFrame(right_frame, fg_color="transparent")
+        r_mid.pack(fill="x", padx=10, pady=2)
+        r_mid.grid_columnconfigure(0, weight=0, minsize=140)
+        r_mid.grid_columnconfigure(1, weight=1)
+
+        f_cat = ctk.CTkFrame(r_mid, fg_color="transparent")
+        f_cat.grid(row=0, column=0, padx=(0, 4), sticky="ew")
+        ctk.CTkLabel(f_cat, text="카테고리", font=ctk.CTkFont(size=11)).pack(anchor="w")
+        cbo_mod_cat = ctk.CTkComboBox(f_cat, values=["로그인", "웹조작", "윈도우앱", "OCR", "스니펫", "유틸", "사용자정의"], height=28)
+        cbo_mod_cat.pack(fill="x", pady=(2, 0))
+        cbo_mod_cat.set("웹조작")
+
+        f_desc = ctk.CTkFrame(r_mid, fg_color="transparent")
+        f_desc.grid(row=0, column=1, padx=(4, 0), sticky="ew")
+        ctk.CTkLabel(f_desc, text="모듈 설명 / 필요 변수", font=ctk.CTkFont(size=11)).pack(anchor="w")
+        ent_mod_desc = ctk.CTkEntry(f_desc, height=28, placeholder_text="예: 계약번호 조회 후 상세 화면 진입")
+        ent_mod_desc.pack(fill="x", pady=(2, 0))
+
+        # 코드 에디터 박스
+        ctk.CTkLabel(right_frame, text="파이썬 모듈 코드 (Python Code)", font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w", padx=10, pady=(6, 2))
+        txt_mod_code = ctk.CTkTextbox(right_frame, font=ctk.CTkFont(family="Consolas", size=12), fg_color="#181818")
+        txt_mod_code.pack(fill="both", expand=True, padx=10, pady=(0, 6))
+
+        # 하단 액션 버튼 바
+        b_bar = ctk.CTkFrame(right_frame, fg_color="transparent")
+        b_bar.pack(fill="x", padx=10, pady=(0, 10))
+
+        def _refresh_module_list():
+            for widget in scroll_list.winfo_children():
+                widget.destroy()
+
+            cat_filter = cbo_cat_filter.get()
+            cat_val = None if cat_filter == "전체" else cat_filter
+
+            try:
+                mods = db.list_scripts(category=cat_val)
+                if not mods:
+                    ctk.CTkLabel(scroll_list, text="저장된 모듈이 없습니다.", font=ctk.CTkFont(size=11)).pack(pady=20)
+                    return
+
+                for m in mods:
+                    card = ctk.CTkFrame(scroll_list, corner_radius=6, fg_color="#2b2b2b")
+                    card.pack(fill="x", pady=3)
+
+                    top_c = ctk.CTkFrame(card, fg_color="transparent")
+                    top_c.pack(fill="x", padx=6, pady=(4, 2))
+                    ctk.CTkLabel(top_c, text=f"[{m['category']}]", font=ctk.CTkFont(size=10, weight="bold"), text_color="#64b5f6").pack(side="left")
+                    ctk.CTkLabel(top_c, text=m['name'], font=ctk.CTkFont(size=10), text_color="#aaaaaa").pack(side="right")
+
+                    title_btn = ctk.CTkButton(
+                        card, text=m['title'], anchor="w", fg_color="transparent",
+                        hover_color="#3a3a3a", font=ctk.CTkFont(size=12, weight="bold"),
+                        command=lambda key=m['name']: _select_module(key)
+                    )
+                    title_btn.pack(fill="x", padx=4, pady=(0, 4))
+            except Exception as e:
+                ctk.CTkLabel(scroll_list, text=f"DB 조회 오류:\n{e}", text_color="#ff5555", font=ctk.CTkFont(size=11)).pack(pady=10)
+
+        def _select_module(mod_name: str):
+            try:
+                mod = db.get_script(mod_name)
+                if mod:
+                    ent_mod_name.delete(0, "end"); ent_mod_name.insert(0, mod.get("name", ""))
+                    ent_mod_title.delete(0, "end"); ent_mod_title.insert(0, mod.get("title", ""))
+                    cbo_mod_cat.set(mod.get("category", "웹조작"))
+                    ent_mod_desc.delete(0, "end"); ent_mod_desc.insert(0, mod.get("description", "") or "")
+                    txt_mod_code.delete("1.0", "end"); txt_mod_code.insert("1.0", mod.get("code", ""))
+            except Exception as e:
+                messagebox.showerror("오류", f"모듈 로드 실패: {e}")
+
+        def _insert_to_main_editor():
+            code = txt_mod_code.get("1.0", "end").strip()
+            if not code:
+                messagebox.showwarning("경고", "삽입할 코드가 없습니다.")
+                return
+            self.txt_script_editor.insert("insert", f"\n{code}\n")
+            self.txt_script_editor.focus_set()
+            modal.destroy()
+            messagebox.showinfo("삽입 완료", f"모듈 '{ent_mod_title.get()}' 코드가 에디터에 삽입되었습니다.")
+
+        def _save_to_neon_db():
+            name = ent_mod_name.get().strip()
+            title = ent_mod_title.get().strip()
+            cat = cbo_mod_cat.get().strip()
+            desc = ent_mod_desc.get().strip()
+            code = txt_mod_code.get("1.0", "end").strip()
+
+            if not name or not title or not code:
+                messagebox.showwarning("필수 입력", "식별자(영문), 한글명, 코드는 필수 입력 항목입니다.")
+                return
+
+            try:
+                db.save_script(name=name, title=title, category=cat, code=code, description=desc)
+                _refresh_module_list()
+                messagebox.showinfo("저장 완료", f"Neon DB에 모듈 '{title}'이(가) 성공적으로 저장되었습니다!")
+            except Exception as e:
+                messagebox.showerror("저장 오류", f"DB 저장 실패: {e}")
+
+        def _pull_from_main_editor():
+            cur_code = self.txt_script_editor.get("1.0", "end").strip()
+            if not cur_code:
+                messagebox.showwarning("안내", "현재 에디터에 코드가 없습니다.")
+                return
+            txt_mod_code.delete("1.0", "end")
+            txt_mod_code.insert("1.0", cur_code)
+
+        def _delete_from_db():
+            name = ent_mod_name.get().strip()
+            if not name:
+                return
+            if messagebox.askyesno("삭제 확인", f"정말로 모듈 '{name}'을(를) DB에서 삭제하시겠습니까?"):
+                try:
+                    db.delete_script(name)
+                    _refresh_module_list()
+                    txt_mod_code.delete("1.0", "end")
+                    ent_mod_name.delete(0, "end")
+                    ent_mod_title.delete(0, "end")
+                    ent_mod_desc.delete(0, "end")
+                    messagebox.showinfo("삭제 완료", f"모듈 '{name}'이(가) 삭제되었습니다.")
+                except Exception as e:
+                    messagebox.showerror("삭제 오류", f"삭제 실패: {e}")
+
+        # 버튼 배치
+        ctk.CTkButton(b_bar, text="📋 에디터에 삽입", height=32, fg_color="#2e7d32", hover_color="#1b5e20",
+                      font=ctk.CTkFont(weight="bold"), command=_insert_to_main_editor).pack(side="left", padx=(0, 6))
+
+        ctk.CTkButton(b_bar, text="💾 Neon DB에 저장/수정", height=32, fg_color="#6a1b9a", hover_color="#4a148c",
+                      font=ctk.CTkFont(weight="bold"), command=_save_to_neon_db).pack(side="left", padx=6)
+
+        ctk.CTkButton(b_bar, text="✨ 현재 에디터 내용 가져오기", height=32, fg_color="#444444", hover_color="#333333",
+                      command=_pull_from_main_editor).pack(side="left", padx=6)
+
+        ctk.CTkButton(b_bar, text="🗑️ DB에서 삭제", height=32, fg_color="#c62828", hover_color="#8e0000",
+                      command=_delete_from_db).pack(side="right")
+
+        cbo_cat_filter.configure(command=lambda _: _refresh_module_list())
+        ctk.CTkButton(l_head, text="새로고침", width=60, height=22, font=ctk.CTkFont(size=10),
+                      command=_refresh_module_list).pack(side="right")
+
+        _refresh_module_list()
+
 
 
 def main():
