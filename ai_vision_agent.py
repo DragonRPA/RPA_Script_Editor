@@ -319,7 +319,7 @@ class AIVisionFrame(ctk.CTkFrame):
 
         ctk.CTkButton(
             proj_bar, text="프로젝트 전환", width=90, height=22,
-            font=ctk.CTkFont(size=10), fg_color="#333333", hover_color="#444444",
+            font=ctk.CTkFont(size=11), fg_color="#333333", hover_color="#444444",
             command=self._switch_project
         ).pack(side="right", padx=8)
 
@@ -327,98 +327,88 @@ class AIVisionFrame(ctk.CTkFrame):
 
         # 1. 상단 글로벌 컨트롤 바 (AI 설정 + 대상 URL/창)
         top_ctrl = ctk.CTkFrame(self, corner_radius=6)
-        top_ctrl.pack(fill="x", padx=6, pady=(4, 6))
+        top_ctrl.pack(fill="x", padx=6, pady=(4, 2))
 
-        # [상단-좌측] AI 엔진
-        ai_frame = ctk.CTkFrame(top_ctrl, fg_color="transparent")
-        ai_frame.pack(side="left", fill="y", padx=4, pady=4)
+        # 좌우 분할을 위해 grid 사용 (더 깔끔한 정렬)
+        top_ctrl.grid_columnconfigure(0, weight=0, minsize=420)
+        top_ctrl.grid_columnconfigure(1, weight=1)
         
-        ctk.CTkLabel(ai_frame, text="AI 엔진", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=(8, 6))
+        # --- 좌측: AI 설정 ---
+        ai_frame = ctk.CTkFrame(top_ctrl, fg_color="transparent")
+        ai_frame.grid(row=0, column=0, sticky="nw", padx=8, pady=4)
+        
+        # Row 1 of AI
+        ai_r1 = ctk.CTkFrame(ai_frame, fg_color="transparent")
+        ai_r1.pack(fill="x", pady=(0, 2))
+        ctk.CTkLabel(ai_r1, text="AI 엔진", font=ctk.CTkFont(size=12, weight="bold"), width=60, anchor="w").pack(side="left")
         self.seg_engine = ctk.CTkSegmentedButton(
-            ai_frame, values=["Google Gemini", "Local Ollama"],
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._on_engine_changed
+            ai_r1, values=["Google Gemini", "Local Ollama"],
+            font=ctk.CTkFont(size=12, weight="bold"), command=self._on_engine_changed
         )
-        self.seg_engine.pack(side="left", padx=(0, 8))
+        self.seg_engine.pack(side="left", padx=4)
 
-        self.engine_conf_frame = ctk.CTkFrame(ai_frame, fg_color="transparent")
-        self.engine_conf_frame.pack(side="left", fill="x", expand=True)
+        # Row 2 of AI
+        ai_r2 = ctk.CTkFrame(ai_frame, fg_color="transparent")
+        ai_r2.pack(fill="x", pady=2)
+        self.engine_conf_frame = ctk.CTkFrame(ai_r2, fg_color="transparent")
+        self.engine_conf_frame.pack(fill="both", expand=True)
 
-        # [A] Gemini 설정
+        # Gemini
         self.f_gemini = ctk.CTkFrame(self.engine_conf_frame, fg_color="transparent")
-        ctk.CTkLabel(self.f_gemini, text="API 키", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(0, 4))
-        self.ent_api_key = ctk.CTkEntry(self.f_gemini, height=28, width=160, font=ctk.CTkFont(size=12), placeholder_text="Gemini API Key", show="*")
-        self.ent_api_key.pack(side="left", padx=(0, 4))
-        self.ent_api_key.bind("<FocusOut>", lambda e: self._save_all_configs())
-
-        btn_toggle_key = ctk.CTkButton(self.f_gemini, text="보기", width=40, height=28, font=ctk.CTkFont(size=11), fg_color="#444444", command=self._toggle_key_visibility)
-        btn_toggle_key.pack(side="left", padx=(0, 4))
-
-        btn_save_key = ctk.CTkButton(self.f_gemini, text="저장", width=45, height=28, font=ctk.CTkFont(size=11), fg_color="#2e7d32", command=self._save_all_configs)
-        btn_save_key.pack(side="left", padx=(0, 6))
-
-        ctk.CTkLabel(self.f_gemini, text="모델", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(0, 4))
-        self.cbo_gemini_model = ctk.CTkComboBox(
-            self.f_gemini, values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"], width=130, height=28, font=ctk.CTkFont(size=11),
-            command=lambda _: self._save_all_configs()
-        )
+        ctk.CTkLabel(self.f_gemini, text="API 키", font=ctk.CTkFont(size=12, weight="bold"), width=50, anchor="w").pack(side="left")
+        self.ent_api_key = ctk.CTkEntry(self.f_gemini, height=26, width=120, font=ctk.CTkFont(size=11), show="*")
+        self.ent_api_key.pack(side="left", padx=2)
+        btn_toggle_key = ctk.CTkButton(self.f_gemini, text="보기", width=36, height=26, font=ctk.CTkFont(size=11), fg_color="#444444", command=self._toggle_key_visibility)
+        btn_toggle_key.pack(side="left", padx=2)
+        ctk.CTkLabel(self.f_gemini, text="모델", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=4)
+        self.cbo_gemini_model = ctk.CTkComboBox(self.f_gemini, values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"], width=130, height=26, font=ctk.CTkFont(size=11))
         self.cbo_gemini_model.pack(side="left")
         self.cbo_gemini_model.set("gemini-2.5-flash")
 
-        # [B] Ollama 설정
+        # Ollama
         self.f_ollama = ctk.CTkFrame(self.engine_conf_frame, fg_color="transparent")
-        ctk.CTkLabel(self.f_ollama, text="URL", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(0, 4))
-        self.ent_ollama_url = ctk.CTkEntry(self.f_ollama, height=28, width=150, font=ctk.CTkFont(size=11))
-        self.ent_ollama_url.pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(self.f_ollama, text="URL", font=ctk.CTkFont(size=12, weight="bold"), width=40, anchor="w").pack(side="left")
+        self.ent_ollama_url = ctk.CTkEntry(self.f_ollama, height=26, width=140, font=ctk.CTkFont(size=11))
+        self.ent_ollama_url.pack(side="left", padx=2)
         self.ent_ollama_url.insert(0, "http://localhost:11434")
-        self.ent_ollama_url.bind("<FocusOut>", lambda e: self._save_all_configs())
-
-        btn_refresh_ollama = ctk.CTkButton(self.f_ollama, text="모델 조회", width=70, height=28, font=ctk.CTkFont(size=11), fg_color="#1f6aa5", command=self._refresh_ollama_models)
-        btn_refresh_ollama.pack(side="left", padx=(0, 6))
-
-        ctk.CTkLabel(self.f_ollama, text="모델", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(0, 4))
-        self.cbo_ollama_model = ctk.CTkComboBox(
-            self.f_ollama, values=["qwen3-vl:4b", "gemma3:12b", "llava", "qwen2.5:7b"], width=130, height=28, font=ctk.CTkFont(size=11),
-            command=lambda _: self._save_all_configs()
-        )
+        btn_refresh_ollama = ctk.CTkButton(self.f_ollama, text="조회", width=40, height=26, font=ctk.CTkFont(size=11), fg_color="#1f6aa5", command=self._refresh_ollama_models)
+        btn_refresh_ollama.pack(side="left", padx=2)
+        ctk.CTkLabel(self.f_ollama, text="모델", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=4)
+        self.cbo_ollama_model = ctk.CTkComboBox(self.f_ollama, values=["qwen3-vl:4b", "gemma3:12b", "llava"], width=120, height=26, font=ctk.CTkFont(size=11))
         self.cbo_ollama_model.pack(side="left")
-        self.cbo_ollama_model.set("qwen3-vl:4b")
 
-        # [상단-우측] 타겟 창 및 DOM 수집 (수직 구분선 후 배치)
+        # --- 수직 구분선 ---
         sep = ctk.CTkFrame(top_ctrl, width=2, fg_color="#333333")
-        sep.pack(side="left", fill="y", padx=8, pady=4)
+        sep.grid(row=0, column=1, sticky="ns", padx=4, pady=4)
 
+        # --- 우측: 타겟 설정 ---
         tgt_frame = ctk.CTkFrame(top_ctrl, fg_color="transparent")
-        tgt_frame.pack(side="left", fill="both", expand=True, padx=4, pady=2)
+        tgt_frame.grid(row=0, column=2, sticky="nsew", padx=8, pady=4)
 
-        # Row 1 of Target: CDP + Window
+        # Row 1 of Target
         t_row1 = ctk.CTkFrame(tgt_frame, fg_color="transparent")
-        t_row1.pack(fill="x", pady=2)
-        
-        self.lbl_cdp_status = ctk.CTkLabel(t_row1, text="● CDP 미연결", font=ctk.CTkFont(size=11, weight="bold"), text_color="#888888", width=75, anchor="w")
-        self.lbl_cdp_status.pack(side="left", padx=(0, 4))
-        
-        btn_cdp_launch = ctk.CTkButton(t_row1, text="Chrome", width=55, height=24, font=ctk.CTkFont(size=10), fg_color="#1a3a5c", command=lambda: self._create_cdp_shortcut("chrome"))
+        t_row1.pack(fill="x", pady=(0, 2))
+        self.lbl_cdp_status = ctk.CTkLabel(t_row1, text="● CDP 미연결", font=ctk.CTkFont(size=11, weight="bold"), text_color="#888888", width=80, anchor="w")
+        self.lbl_cdp_status.pack(side="left")
+        btn_cdp_launch = ctk.CTkButton(t_row1, text="Chrome", width=55, height=26, font=ctk.CTkFont(size=11), fg_color="#1a3a5c", command=lambda: self._create_cdp_shortcut("chrome"))
         btn_cdp_launch.pack(side="left", padx=2)
-        btn_cdp_launch_edge = ctk.CTkButton(t_row1, text="Edge", width=45, height=24, font=ctk.CTkFont(size=10), fg_color="#1a3a3a", command=lambda: self._create_cdp_shortcut("edge"))
-        btn_cdp_launch_edge.pack(side="left", padx=(2, 8))
+        btn_cdp_launch_edge = ctk.CTkButton(t_row1, text="Edge", width=45, height=26, font=ctk.CTkFont(size=11), fg_color="#1a3a3a", command=lambda: self._create_cdp_shortcut("edge"))
+        btn_cdp_launch_edge.pack(side="left", padx=(2, 10))
 
         ctk.CTkLabel(t_row1, text="대상 창:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=2)
-        self.cbo_windows = ctk.CTkComboBox(t_row1, values=["(창 검색 전)"], height=24, font=ctk.CTkFont(size=11))
+        self.cbo_windows = ctk.CTkComboBox(t_row1, values=["(창 검색 전)"], height=26, font=ctk.CTkFont(size=11))
         self.cbo_windows.pack(side="left", fill="x", expand=True, padx=4)
-        btn_refresh_wins = ctk.CTkButton(t_row1, text="갱신", width=40, height=24, font=ctk.CTkFont(size=10), fg_color="#333333", command=self._refresh_window_list)
+        btn_refresh_wins = ctk.CTkButton(t_row1, text="갱신", width=45, height=26, font=ctk.CTkFont(size=11), fg_color="#333333", command=self._refresh_window_list)
         btn_refresh_wins.pack(side="right")
 
-        # Row 2 of Target: URL + Harvest
+        # Row 2 of Target
         t_row2 = ctk.CTkFrame(tgt_frame, fg_color="transparent")
         t_row2.pack(fill="x", pady=2)
-        
         ctk.CTkLabel(t_row2, text="대상 URL:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=2)
-        self.ent_target_url = ctk.CTkEntry(t_row2, height=24, font=ctk.CTkFont(size=11), placeholder_text="예: http://175.119.156.105...")
+        self.ent_target_url = ctk.CTkEntry(t_row2, height=26, font=ctk.CTkFont(size=11), placeholder_text="예: http://175.119.156.105...")
         self.ent_target_url.pack(side="left", fill="x", expand=True, padx=4)
         self.ent_target_url.bind("<FocusOut>", lambda e: self._save_all_configs())
-
-        self.btn_harvest_dom = ctk.CTkButton(t_row2, text="DOM 수집", width=70, height=24, fg_color="#1f6aa5", font=ctk.CTkFont(size=11, weight="bold"), command=self._start_harvest_dom)
+        self.btn_harvest_dom = ctk.CTkButton(t_row2, text="DOM 수집", width=70, height=26, fg_color="#1f6aa5", font=ctk.CTkFont(size=11, weight="bold"), command=self._start_harvest_dom)
         self.btn_harvest_dom.pack(side="right")
 
 
@@ -482,7 +472,7 @@ class AIVisionFrame(ctk.CTkFrame):
         self.lbl_ds_status = ctk.CTkLabel(
             self.frm_ds_info,
             text="파일 없음 - Excel/CSV/JSON",
-            font=ctk.CTkFont(size=10), text_color="#444444", anchor="w"
+            font=ctk.CTkFont(size=11), text_color="#444444", anchor="w"
         )
         self.lbl_ds_status.pack(fill="x", padx=8, pady=6)
 
@@ -553,9 +543,9 @@ class AIVisionFrame(ctk.CTkFrame):
 
         self.var_build_type = ctk.StringVar(value="debug")
         ctk.CTkRadioButton(task_meta, text="DEBUG", variable=self.var_build_type, value="debug",
-                           font=ctk.CTkFont(size=10)).pack(side="left", padx=(0, 6))
+                           font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 6))
         ctk.CTkRadioButton(task_meta, text="RELEASE", variable=self.var_build_type, value="release",
-                           font=ctk.CTkFont(size=10), text_color="#ffd54f").pack(side="left")
+                           font=ctk.CTkFont(size=11), text_color="#ffd54f").pack(side="left")
 
         self.btn_generate = ctk.CTkButton(
             col1_f, text="코드 생성", height=38,
@@ -916,22 +906,22 @@ class AIVisionFrame(ctk.CTkFrame):
 
         disp_path = path if len(path) <= 18 else path[:15] + ".."
         if disp_path:
-            lbl_path = ctk.CTkLabel(row, text=f"경로: {disp_path}", width=130, font=ctk.CTkFont(size=10), text_color="#b0bec5", anchor="w")
+            lbl_path = ctk.CTkLabel(row, text=f"경로: {disp_path}", width=130, font=ctk.CTkFont(size=11), text_color="#b0bec5", anchor="w")
             lbl_path.pack(side="left", padx=4)
 
-        lbl_sel = ctk.CTkLabel(row, text=sel, font=ctk.CTkFont(family="Consolas", size=10), text_color="#64b5f6", anchor="w")
+        lbl_sel = ctk.CTkLabel(row, text=sel, font=ctk.CTkFont(family="Consolas", size=11), text_color="#64b5f6", anchor="w")
         lbl_sel.pack(side="left", fill="x", expand=True, padx=4)
 
         if raw_html:
             btn_html = ctk.CTkButton(
-                row, text="HTML", width=46, height=22, font=ctk.CTkFont(size=10),
+                row, text="HTML", width=46, height=22, font=ctk.CTkFont(size=11),
                 fg_color="#444444", hover_color="#333333",
                 command=lambda: self._show_element_html(name, raw_html, sel)
             )
             btn_html.pack(side="right", padx=(4, 0))
 
         btn_keep = ctk.CTkButton(
-            row, text="Keep ★", width=56, height=22, font=ctk.CTkFont(size=10, weight="bold"),
+            row, text="Keep ★", width=56, height=22, font=ctk.CTkFont(size=11, weight="bold"),
             fg_color="#7b5800", hover_color="#a07000",
             command=lambda i=itm: self._on_keep_item(i)
         )
@@ -1052,7 +1042,7 @@ class AIVisionFrame(ctk.CTkFrame):
             if item.get("path"):
                 ctk.CTkLabel(
                     row, text=item["path"][:30],
-                    font=ctk.CTkFont(size=10), text_color="#888888"
+                    font=ctk.CTkFont(size=11), text_color="#888888"
                 ).pack(side="left", padx=(0, 6))
 
             def _rename(i=idx):
@@ -1125,20 +1115,20 @@ class AIVisionFrame(ctk.CTkFrame):
 
         f_act = ctk.CTkFrame(r1, fg_color="transparent")
         f_act.pack(side="left", padx=4)
-        ctk.CTkLabel(f_act, text="액션", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        ctk.CTkLabel(f_act, text="액션", font=ctk.CTkFont(size=11)).pack(anchor="w")
         cb_act = ctk.CTkComboBox(f_act, values=["클릭", "입력", "수집", "키입력", "대기"], width=90, font=ctk.CTkFont(size=11))
         cb_act.set("클릭")
         cb_act.pack(anchor="w")
 
         f_tgt = ctk.CTkFrame(r1, fg_color="transparent")
         f_tgt.pack(side="left", padx=4)
-        ctk.CTkLabel(f_tgt, text="대상 요소", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        ctk.CTkLabel(f_tgt, text="대상 요소", font=ctk.CTkFont(size=11)).pack(anchor="w")
         cb_tgt = ctk.CTkComboBox(f_tgt, values=keep_names, width=140, font=ctk.CTkFont(size=11))
         cb_tgt.pack(anchor="w")
 
         f_val = ctk.CTkFrame(r1, fg_color="transparent")
         f_val.pack(side="left", padx=4, fill="x", expand=True)
-        ctk.CTkLabel(f_val, text="입력 값 (필요시)", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        ctk.CTkLabel(f_val, text="입력 값 (필요시)", font=ctk.CTkFont(size=11)).pack(anchor="w")
         ent_val = ctk.CTkEntry(f_val, font=ctk.CTkFont(size=11))
         ent_val.pack(fill="x")
 
@@ -1148,26 +1138,26 @@ class AIVisionFrame(ctk.CTkFrame):
 
         f_ctype = ctk.CTkFrame(r2, fg_color="transparent")
         f_ctype.pack(side="left", padx=4)
-        ctk.CTkLabel(f_ctype, text="완료조건", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        ctk.CTkLabel(f_ctype, text="완료조건", font=ctk.CTkFont(size=11)).pack(anchor="w")
         cb_ctype = ctk.CTkComboBox(f_ctype, values=["없음", "요소 출현", "요소 사라짐", "텍스트 일치", "고정 지연"], width=100, font=ctk.CTkFont(size=11))
         cb_ctype.set("없음")
         cb_ctype.pack(anchor="w")
 
         f_ctgt = ctk.CTkFrame(r2, fg_color="transparent")
         f_ctgt.pack(side="left", padx=4)
-        ctk.CTkLabel(f_ctgt, text="조건 대상", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        ctk.CTkLabel(f_ctgt, text="조건 대상", font=ctk.CTkFont(size=11)).pack(anchor="w")
         cb_ctgt = ctk.CTkComboBox(f_ctgt, values=keep_names, width=140, font=ctk.CTkFont(size=11))
         cb_ctgt.pack(anchor="w")
 
         f_cval = ctk.CTkFrame(r2, fg_color="transparent")
         f_cval.pack(side="left", padx=4, fill="x", expand=True)
-        ctk.CTkLabel(f_cval, text="기대값 / 지연(ms)", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        ctk.CTkLabel(f_cval, text="기대값 / 지연(ms)", font=ctk.CTkFont(size=11)).pack(anchor="w")
         ent_cval = ctk.CTkEntry(f_cval, font=ctk.CTkFont(size=11))
         ent_cval.pack(fill="x")
 
         f_to = ctk.CTkFrame(r2, fg_color="transparent")
         f_to.pack(side="left", padx=4)
-        ctk.CTkLabel(f_to, text="타임아웃(s)", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        ctk.CTkLabel(f_to, text="타임아웃(s)", font=ctk.CTkFont(size=11)).pack(anchor="w")
         ent_to = ctk.CTkEntry(f_to, width=60, font=ctk.CTkFont(size=11))
         ent_to.insert(0, "10")
         ent_to.pack(anchor="w")
@@ -1306,7 +1296,7 @@ class AIVisionFrame(ctk.CTkFrame):
             text_color="#ffd54f", anchor="w"
         ).pack(side="left", padx=8, pady=6)
         ctk.CTkButton(
-            hdr, text="✕", width=24, height=24, font=ctk.CTkFont(size=10),
+            hdr, text="✕", width=24, height=24, font=ctk.CTkFont(size=11),
             fg_color="transparent", hover_color="#333333",
             command=pop.destroy
         ).pack(side="right", padx=4)
@@ -1331,7 +1321,7 @@ class AIVisionFrame(ctk.CTkFrame):
             # 미리보기 라벨
             ctk.CTkLabel(
                 pop, text=f"    → {phrase}",
-                anchor="w", font=ctk.CTkFont(size=10), text_color="#555555"
+                anchor="w", font=ctk.CTkFont(size=11), text_color="#555555"
             ).pack(fill="x", padx=0)
 
         # 팝업 바깥 클릭 시 닫기
@@ -1444,7 +1434,7 @@ class AIVisionFrame(ctk.CTkFrame):
         col_hdr = ctk.CTkFrame(pop, fg_color="#111111", corner_radius=0)
         col_hdr.pack(fill="x")
         for txt, w in [("컬럼명", 160), ("샘플 값", 140), ("타입", 60), ("변수명 ({row.})", 130), ("", 60)]:
-            ctk.CTkLabel(col_hdr, text=txt, width=w, font=ctk.CTkFont(size=10, weight="bold"),
+            ctk.CTkLabel(col_hdr, text=txt, width=w, font=ctk.CTkFont(size=11, weight="bold"),
                          text_color="#888", anchor="w").pack(side="left", padx=4, pady=4)
 
         # 스크롤 목록
@@ -1469,15 +1459,15 @@ class AIVisionFrame(ctk.CTkFrame):
                          font=ctk.CTkFont(size=11), text_color="#dddddd").pack(side="left", padx=6)
             # 샘플값
             ctk.CTkLabel(row_f, text=info["sample"][:18], width=140, anchor="w",
-                         font=ctk.CTkFont(family="Consolas", size=10), text_color="#888").pack(side="left")
+                         font=ctk.CTkFont(family="Consolas", size=11), text_color="#888").pack(side="left")
             # 타입 배지
             type_colors = {"str": "#37474f", "int": "#1a3a5c", "float": "#1a3a5c",
                            "date": "#3e2723", "bool": "#1a237e"}
             ctk.CTkLabel(row_f, text=info["inferred_type"], width=60, anchor="w",
-                         font=ctk.CTkFont(size=10),
+                         font=ctk.CTkFont(size=11),
                          text_color=type_colors.get(info["inferred_type"], "#555")).pack(side="left")
             # 변수명 입력
-            ent = ctk.CTkEntry(row_f, width=140, height=24, font=ctk.CTkFont(family="Consolas", size=10))
+            ent = ctk.CTkEntry(row_f, width=140, height=24, font=ctk.CTkFont(family="Consolas", size=11))
             ent.insert(0, var_name_default)
             ent.pack(side="left", padx=4)
 
@@ -1514,7 +1504,7 @@ class AIVisionFrame(ctk.CTkFrame):
 
             btn = ctk.CTkButton(row_f, text=btn_text, width=70, height=24,
                                 fg_color=btn_color, hover_color="#1f6aa5",
-                                font=ctk.CTkFont(size=10), command=_keep)
+                                font=ctk.CTkFont(size=11), command=_keep)
             btn.pack(side="left", padx=4)
             # btn_ref 클로저 연결
             btn.configure(command=lambda i=info, e=ent, b=btn: (
@@ -1562,7 +1552,7 @@ class AIVisionFrame(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self.frm_data_chips, text="row›",
-            font=ctk.CTkFont(family="Consolas", size=10), text_color="#546e7a"
+            font=ctk.CTkFont(family="Consolas", size=11), text_color="#546e7a"
         ).pack(side="left", padx=(0, 2))
 
         for itm in data_items:
@@ -1571,7 +1561,7 @@ class AIVisionFrame(ctk.CTkFrame):
             ctk.CTkButton(
                 self.frm_data_chips,
                 text=f"{{{itm['var_name']}}}",
-                height=22, font=ctk.CTkFont(family="Consolas", size=10),
+                height=22, font=ctk.CTkFont(family="Consolas", size=11),
                 fg_color="#1a3a5c", hover_color="#1f6aa5",
                 command=_open
             ).pack(side="left", padx=1, pady=1)
@@ -1609,7 +1599,7 @@ class AIVisionFrame(ctk.CTkFrame):
                      text_color="#64b5f6", anchor="w").pack(side="left", padx=8, pady=6)
         if sample_val:
             ctk.CTkLabel(hdr, text=f"예: {sample_val}",
-                         font=ctk.CTkFont(size=10), text_color="#888888").pack(side="left", padx=4)
+                         font=ctk.CTkFont(size=11), text_color="#888888").pack(side="left", padx=4)
         ctk.CTkButton(hdr, text="✕", width=24, height=24, fg_color="transparent",
                       hover_color="#333", command=pop.destroy).pack(side="right", padx=4)
 
@@ -1622,7 +1612,7 @@ class AIVisionFrame(ctk.CTkFrame):
                           hover_color="#2a2a2a", text_color="#dddddd",
                           corner_radius=0, command=_pick).pack(fill="x")
             ctk.CTkLabel(pop, text=f"    → {phrase}", anchor="w",
-                         font=ctk.CTkFont(size=10), text_color="#555555").pack(fill="x")
+                         font=ctk.CTkFont(size=11), text_color="#555555").pack(fill="x")
 
         pop.bind("<FocusOut>", lambda e: pop.destroy())
         pop.focus_set()
