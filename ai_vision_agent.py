@@ -296,6 +296,10 @@ class AIVisionFrame(ctk.CTkFrame):
         self.current_catalog: Dict[str, List[Dict[str, Any]]] = {}
         self.open_windows_list: List[Tuple[int, str]] = []
         self.keep_list: List[Dict[str, Any]] = []
+        self.data_source_path: str = ""
+        self.data_source_columns: List[str] = []   # 컬럼명 목록
+        self.data_source_row_count: int = 0
+        self.data_source_sample: List[Dict] = []   # 5행 샘플
 
         self._build_ui()
         self._load_saved_configs()
@@ -527,6 +531,26 @@ class AIVisionFrame(ctk.CTkFrame):
         for sf in self.scroll_frames.values():
             sf.pack(fill="both", expand=True)
 
+        # ── [섹션 D] 데이터 소스 패널 ──────────────────────────────────────────
+        ds_head = ctk.CTkFrame(left_f, fg_color="transparent")
+        ds_head.pack(fill="x", padx=8, pady=(4, 1))
+        ctk.CTkLabel(ds_head, text="데이터 소스", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        ctk.CTkButton(
+            ds_head, text="파일 선택", width=80, height=24,
+            font=ctk.CTkFont(size=11), fg_color="#1a3a5c", hover_color="#1f6aa5",
+            command=self._load_data_source
+        ).pack(side="right")
+
+        self.frm_ds_info = ctk.CTkFrame(left_f, fg_color="#161b22", corner_radius=6, height=30)
+        self.frm_ds_info.pack(fill="x", padx=8, pady=(0, 4))
+        self.frm_ds_info.pack_propagate(False)
+        self.lbl_ds_status = ctk.CTkLabel(
+            self.frm_ds_info,
+            text="파일 없음  —  Excel / CSV / JSON 을 선택하면 컬럼이 변수로 등록됩니다.",
+            font=ctk.CTkFont(size=10), text_color="#444444", anchor="w"
+        )
+        self.lbl_ds_status.pack(fill="x", padx=8, side="left")
+
         # ── [섹션 K] Keep 목록 패널 ──────────────────────────────────────────────
         keep_head = ctk.CTkFrame(left_f, fg_color="transparent")
         keep_head.pack(fill="x", padx=8, pady=(4, 1))
@@ -558,9 +582,17 @@ class AIVisionFrame(ctk.CTkFrame):
             "아이디 입력창에 'admin', 비밀번호에 '1234'를 입력하고 로그인 버튼을 클릭."
         )
 
-        # 변수 삽입 칩 버튼 영역 (Keep 아이템 추가 시 동적 생성)
-        self.frm_var_chips = ctk.CTkFrame(left_f, fg_color="transparent")
-        self.frm_var_chips.pack(fill="x", padx=8, pady=(0, 4))
+        # 변수 삽입 칩 버튼 영역
+        chips_wrap = ctk.CTkFrame(left_f, fg_color="transparent")
+        chips_wrap.pack(fill="x", padx=8, pady=(0, 2))
+
+        # Keep 요소 칩 행
+        self.frm_var_chips = ctk.CTkFrame(chips_wrap, fg_color="transparent")
+        self.frm_var_chips.pack(fill="x")
+
+        # 데이터 소스 컬럼 칩 행
+        self.frm_data_chips = ctk.CTkFrame(chips_wrap, fg_color="transparent")
+        self.frm_data_chips.pack(fill="x")
 
         # 태스크 제목 + 빌드 타입
         task_meta = ctk.CTkFrame(left_f, fg_color="transparent")
@@ -1263,19 +1295,180 @@ class AIVisionFrame(ctk.CTkFrame):
         self.txt_prompt.insert(idx, f"{{{var_name}}}")
         self.txt_prompt.focus()
 
+    # ── 데이터 소스 기능 ──────────────────────────────────────────────────────
+
+    def _load_data_source(self):
+        """Excel / CSV / JSON 파일 선택 → 컬럼 파싱 → 칩 생성"""
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="데이터 소스 파일 선택",
+            filetypes=[
+                ("지원 파일", "*.xlsx *.xls *.csv *.json"),
+                ("Excel", "*.xlsx *.xls"),
+                ("CSV", "*.csv"),
+                ("JSON", "*.json"),
+            ]
+        )
+        if not path:
+            return
+        try:
+            import pandas as pd
+            ext = path.rsplit(".", 1)[-1].lower()
+            if ext in ("xlsx", "xls"):
+                df = pd.read_excel(path)
+            elif ext == "csv":
+                df = pd.read_csv(path, encoding="utf-8-sig")
+            elif ext == "json":
+                df = pd.read_json(path)
+            else:
+                messagebox.showwarning("파일 오류", "지원하지 않는 형식입니다.")
+                return
+
+            self.data_source_path = path
+            self.data_source_columns = list(df.columns)
+            self.data_source_row_count = len(df)
+            self.data_source_sample = df.head(5).to_dict(orient="records")
+
+            fname = path.split("/")[-1].split("\\")[-1]
+            self.lbl_ds_status.configure(
+                text=f"{fname}  |  {self.data_source_row_count}행  |  컬럼: {', '.join(self.data_source_columns[:6])}{'...' if len(self.data_source_columns) > 6 else ''}",
+                text_color="#4caf50"
+            )
+            self.frm_ds_info.configure(height=36)
+            self._render_data_chips()
+
+        except Exception as e:
+            messagebox.showerror("데이터 소스 오류", f"파일 읽기 실패:\n{e}")
+
+    def _render_data_chips(self):
+        """데이터 소스 컬럼 칩 버튼 갱신"""
+        for w in self.frm_data_chips.winfo_children():
+            w.destroy()
+        if not self.data_source_columns:
+            return
+
+        # 'row.' 접두사 표시 아이콘 라벨
+        ctk.CTkLabel(
+            self.frm_data_chips, text="row›",
+            font=ctk.CTkFont(family="Consolas", size=10), text_color="#546e7a"
+        ).pack(side="left", padx=(0, 2))
+
+        for col in self.data_source_columns:
+            def _open(c=col):
+                self._show_data_action_popup(c)
+            ctk.CTkButton(
+                self.frm_data_chips,
+                text=f"{{row.{col}}}",
+                height=22, font=ctk.CTkFont(family="Consolas", size=10),
+                fg_color="#1a3a5c", hover_color="#1f6aa5",
+                command=_open
+            ).pack(side="left", padx=1, pady=1)
+
+    def _show_data_action_popup(self, col_name: str):
+        """데이터 컬럼 변수의 활용 방법 팝업"""
+        # 샘플 값 표시
+        sample_val = ""
+        if self.data_source_sample:
+            v = self.data_source_sample[0].get(col_name, "")
+            sample_val = str(v)[:20]
+
+        actions = [
+            ("Keep 요소에 입력",   f"{{row.{col_name}}} 값을 입력 대상 요소에 입력"),
+            ("Keep 요소와 비교",   f"{{row.{col_name}}} 값과 화면의 값을 비교"),
+            ("조건 분기",          f"{{row.{col_name}}} 값이 특정 조건이면 처리 방식을 달리"),
+            ("직접 삽입",          f"{{row.{col_name}}}"),
+        ]
+
+        pop = ctk.CTkToplevel(self)
+        pop.overrideredirect(True)
+        pop.attributes("-topmost", True)
+        pop.configure(fg_color="#1e1e1e")
+
+        try:
+            x = self.winfo_pointerx()
+            y = self.winfo_pointery()
+        except Exception:
+            x, y = 400, 400
+        pop.geometry(f"+{x}+{y}")
+
+        hdr = ctk.CTkFrame(pop, fg_color="#0d2137", corner_radius=0)
+        hdr.pack(fill="x")
+        ctk.CTkLabel(
+            hdr, text=f"  row.{col_name}",
+            font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
+            text_color="#64b5f6", anchor="w"
+        ).pack(side="left", padx=8, pady=6)
+        if sample_val:
+            ctk.CTkLabel(
+                hdr, text=f"예: {sample_val}",
+                font=ctk.CTkFont(size=10), text_color="#888888"
+            ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            hdr, text="✕", width=24, height=24, font=ctk.CTkFont(size=10),
+            fg_color="transparent", hover_color="#333333",
+            command=pop.destroy
+        ).pack(side="right", padx=4)
+
+        for label, phrase in actions:
+            def _pick(ph=phrase, p=pop):
+                self._insert_phrase(ph)
+                p.destroy()
+            ctk.CTkButton(
+                pop, text=f"  {label}",
+                anchor="w", height=32, font=ctk.CTkFont(size=12),
+                fg_color="transparent", hover_color="#2a2a2a",
+                text_color="#dddddd", corner_radius=0, command=_pick
+            ).pack(fill="x")
+            ctk.CTkLabel(
+                pop, text=f"    → {phrase}",
+                anchor="w", font=ctk.CTkFont(size=10), text_color="#555555"
+            ).pack(fill="x")
+
+        pop.bind("<FocusOut>", lambda e: pop.destroy())
+        pop.focus_set()
+
     def _build_ai_prompt_with_keep(self, user_prompt: str) -> str:
-        """Keep 목록을 포함한 확장 프롬프트 생성"""
-        if not self.keep_list:
-            return user_prompt
-        lines = ["[고정 참조 객체]"]
-        for item in self.keep_list:
-            lines.append(f"  {{{item['var_name']}}} = selector: \"{item['selector']}\"")
-        lines.append("")
+        """Keep 목록 + 데이터 소스를 포함한 확장 프롬프트 생성"""
+        lines = []
+
+        # ① 고정 참조 객체 (Keep 요소)
+        if self.keep_list:
+            lines.append("[고정 참조 객체]")
+            for item in self.keep_list:
+                lines.append(f"  {{{item['var_name']}}} = selector: \"{item['selector']}\"")
+            lines.append("")
+
+        # ② 데이터 소스 컨텍스트
+        if self.data_source_columns:
+            lines.append("[데이터 소스]")
+            lines.append(f"  파일: {self.data_source_path}")
+            lines.append(f"  총 행 수: {self.data_source_row_count}행")
+            lines.append(f"  컬럼: {', '.join(self.data_source_columns)}")
+            lines.append("  각 행의 값은 {row.컬럼명} 으로 참조합니다.")
+            if self.data_source_sample:
+                lines.append("  샘플 (첫 2행):")
+                for i, row in enumerate(self.data_source_sample[:2]):
+                    lines.append(f"    행{i+1}: { {k: v for k, v in list(row.items())[:4]} }")
+            lines.append("")
+
+        # 요구사항
         lines.append("[요구사항]")
         lines.append(user_prompt)
         lines.append("")
-        lines.append("위 [고정 참조 객체]의 변수명을 실제 셀렉터로 대응시켜 Playwright 코드를 작성하십시오.")
-        return "\n".join(lines)
+
+        # 코드 생성 지침
+        if self.keep_list or self.data_source_columns:
+            directives = []
+            if self.keep_list:
+                directives.append("[고정 참조 객체]의 변수명을 실제 Playwright 셀렉터로 대응")
+            if self.data_source_columns:
+                directives.append("[데이터 소스]가 있으면 pandas로 파일을 읽고 iterrows() 루프로 반복 처리")
+                directives.append("각 행의 처리 결과(성공/실패/수집값)를 별도 컬럼으로 기록 후 결과 파일 저장")
+            lines.append("아래 지침에 따라 Playwright Python 코드를 작성하십시오:")
+            for d in directives:
+                lines.append(f"  - {d}")
+
+        return "\n".join(lines) if lines else user_prompt
 
 
     def _on_harvest_error(self, err_msg: str):
