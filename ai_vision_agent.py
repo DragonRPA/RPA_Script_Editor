@@ -2,10 +2,9 @@
 Universal RPA - Vision AI Code Generator & DOM Inspector
 Google Gemini + Local Ollama
 - 최상위 메인 탭 내장
-- 윈도우 핸들(HWND) 및 URL 기반 DOM/UI 객체 수집
-- 유형별 조작 객체 탭뷰 인스펙터
-- 3~4줄 자연어 요구사항 입력
-- 설정값 자동 저장
+- 윈도우 핸들(HWND) 직통 검사 (새로고침/깜빡임 0%, 세션 100% 보존)
+- 모든 폰트 크기 12pt 이상 보장
+- 건조한 명사/동사 UI 표준
 """
 
 import os
@@ -67,10 +66,10 @@ class GeminiVisionAgent:
     """Google Gemini 비전 API 통신 매니저"""
 
     SYSTEM_INSTRUCTION = """당신은 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
-제공된 [화면 스크린샷], [대상 웹 URL/창], [UI 객체 카탈로그], [자연어 요구사항]을 분석하여 실행 가능한 파이썬 Playwright 코드를 작성하십시오.
+제공된 [화면 스크린샷], [대상 웹 URL/창], [UI 객체 목록], [자연어 요구사항]을 분석하여 실행 가능한 파이썬 Playwright 코드를 작성하십시오.
 
 [작성 규칙]
-1. 셀렉터 매핑: [UI 객체 카탈로그]에 존재하는 실제 id, name, placeholder, class 속성을 스크린샷과 대조하여 작성하십시오.
+1. 셀렉터 매핑: [UI 객체 목록]에 존재하는 실제 id, name, placeholder, class 속성을 스크린샷과 대조하여 작성하십시오.
 2. 브라우저 기동:
    ```python
    browser = playwright.chromium.launch(headless=False, args=["--start-maximized"])
@@ -240,7 +239,7 @@ class AIVisionFrame(ctk.CTkFrame):
     """
     AI 비전 코드 생성 및 DOM 분석기 프레임
     - 건조한 명사/동사 UI 표준
-    - 최소 폰트 크기 11pt 이상
+    - 최소 폰트 크기 12pt 이상 보장
     """
 
     _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recorder_config.json")
@@ -269,10 +268,10 @@ class AIVisionFrame(ctk.CTkFrame):
         top_ctrl = ctk.CTkFrame(self, corner_radius=6)
         top_ctrl.pack(fill="x", padx=6, pady=(4, 6))
 
-        ctk.CTkLabel(top_ctrl, text="AI 엔진", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(10, 6), pady=8)
+        ctk.CTkLabel(top_ctrl, text="AI 엔진", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=(12, 6), pady=8)
         self.seg_engine = ctk.CTkSegmentedButton(
             top_ctrl, values=["Google Gemini", "Local Ollama"],
-            font=ctk.CTkFont(size=11, weight="bold"),
+            font=ctk.CTkFont(size=12, weight="bold"),
             command=self._on_engine_changed
         )
         self.seg_engine.pack(side="left", padx=(0, 12), pady=6)
@@ -282,20 +281,20 @@ class AIVisionFrame(ctk.CTkFrame):
 
         # [A] Gemini 설정
         self.f_gemini = ctk.CTkFrame(self.engine_conf_frame, fg_color="transparent")
-        ctk.CTkLabel(self.f_gemini, text="API 키", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
-        self.ent_api_key = ctk.CTkEntry(self.f_gemini, height=28, width=200, placeholder_text="Gemini API Key", show="*")
-        self.ent_api_key.pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(self.f_gemini, text="API 키", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(0, 6))
+        self.ent_api_key = ctk.CTkEntry(self.f_gemini, height=30, width=220, font=ctk.CTkFont(size=12), placeholder_text="Gemini API Key", show="*")
+        self.ent_api_key.pack(side="left", padx=(0, 6))
         self.ent_api_key.bind("<FocusOut>", lambda e: self._save_all_configs())
 
-        btn_toggle_key = ctk.CTkButton(self.f_gemini, text="보기", width=40, height=28, font=ctk.CTkFont(size=11), fg_color="#444444", command=self._toggle_key_visibility)
-        btn_toggle_key.pack(side="left", padx=(0, 4))
+        btn_toggle_key = ctk.CTkButton(self.f_gemini, text="보기", width=45, height=30, font=ctk.CTkFont(size=12), fg_color="#444444", command=self._toggle_key_visibility)
+        btn_toggle_key.pack(side="left", padx=(0, 6))
 
-        btn_save_key = ctk.CTkButton(self.f_gemini, text="저장", width=50, height=28, font=ctk.CTkFont(size=11), fg_color="#2e7d32", command=self._save_all_configs)
-        btn_save_key.pack(side="left", padx=(0, 8))
+        btn_save_key = ctk.CTkButton(self.f_gemini, text="저장", width=55, height=30, font=ctk.CTkFont(size=12), fg_color="#2e7d32", command=self._save_all_configs)
+        btn_save_key.pack(side="left", padx=(0, 10))
 
-        ctk.CTkLabel(self.f_gemini, text="모델", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(self.f_gemini, text="모델", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(0, 6))
         self.cbo_gemini_model = ctk.CTkComboBox(
-            self.f_gemini, values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"], width=145, height=28, font=ctk.CTkFont(size=11),
+            self.f_gemini, values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"], width=155, height=30, font=ctk.CTkFont(size=12),
             command=lambda _: self._save_all_configs()
         )
         self.cbo_gemini_model.pack(side="left")
@@ -303,18 +302,18 @@ class AIVisionFrame(ctk.CTkFrame):
 
         # [B] Ollama 설정
         self.f_ollama = ctk.CTkFrame(self.engine_conf_frame, fg_color="transparent")
-        ctk.CTkLabel(self.f_ollama, text="URL", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
-        self.ent_ollama_url = ctk.CTkEntry(self.f_ollama, height=28, width=160, font=ctk.CTkFont(size=11))
-        self.ent_ollama_url.pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(self.f_ollama, text="URL", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(0, 6))
+        self.ent_ollama_url = ctk.CTkEntry(self.f_ollama, height=30, width=170, font=ctk.CTkFont(size=12))
+        self.ent_ollama_url.pack(side="left", padx=(0, 6))
         self.ent_ollama_url.insert(0, "http://localhost:11434")
         self.ent_ollama_url.bind("<FocusOut>", lambda e: self._save_all_configs())
 
-        btn_refresh_ollama = ctk.CTkButton(self.f_ollama, text="모델 조회", width=75, height=28, font=ctk.CTkFont(size=11), fg_color="#1f6aa5", command=self._refresh_ollama_models)
-        btn_refresh_ollama.pack(side="left", padx=(0, 8))
+        btn_refresh_ollama = ctk.CTkButton(self.f_ollama, text="모델 조회", width=80, height=30, font=ctk.CTkFont(size=12), fg_color="#1f6aa5", command=self._refresh_ollama_models)
+        btn_refresh_ollama.pack(side="left", padx=(0, 10))
 
-        ctk.CTkLabel(self.f_ollama, text="모델", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(self.f_ollama, text="모델", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(0, 6))
         self.cbo_ollama_model = ctk.CTkComboBox(
-            self.f_ollama, values=["qwen3-vl:4b", "gemma3:12b", "llava", "qwen2.5:7b"], width=145, height=28, font=ctk.CTkFont(size=11),
+            self.f_ollama, values=["qwen3-vl:4b", "gemma3:12b", "llava", "qwen2.5:7b"], width=155, height=30, font=ctk.CTkFont(size=12),
             command=lambda _: self._save_all_configs()
         )
         self.cbo_ollama_model.pack(side="left")
@@ -336,55 +335,55 @@ class AIVisionFrame(ctk.CTkFrame):
         # [섹션 1] 타겟 이미지
         s1_head = ctk.CTkFrame(left_f, fg_color="transparent")
         s1_head.pack(fill="x", padx=8, pady=(4, 2))
-        ctk.CTkLabel(s1_head, text="타겟 화면 이미지", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        ctk.CTkLabel(s1_head, text="타겟 화면 이미지", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
 
         cap_bar = ctk.CTkFrame(left_f, fg_color="transparent")
         cap_bar.pack(fill="x", padx=8, pady=(0, 2))
 
         btn_paste_clip = ctk.CTkButton(
-            cap_bar, text="붙여넣기", width=110, height=28,
-            fg_color="#00695c", hover_color="#004d40", font=ctk.CTkFont(size=11, weight="bold"),
+            cap_bar, text="붙여넣기", width=110, height=30,
+            fg_color="#00695c", hover_color="#004d40", font=ctk.CTkFont(size=12, weight="bold"),
             command=self._paste_from_clipboard
         )
-        btn_paste_clip.pack(side="left", padx=(0, 4))
+        btn_paste_clip.pack(side="left", padx=(0, 6))
 
         btn_cap_screen = ctk.CTkButton(
-            cap_bar, text="화면 캡처", width=90, height=28,
-            fg_color="#1f6aa5", hover_color="#144d75", font=ctk.CTkFont(size=11),
+            cap_bar, text="화면 캡처", width=95, height=30,
+            fg_color="#1f6aa5", hover_color="#144d75", font=ctk.CTkFont(size=12),
             command=self._capture_screen_now
         )
-        btn_cap_screen.pack(side="left", padx=2)
+        btn_cap_screen.pack(side="left", padx=4)
 
         btn_browse_img = ctk.CTkButton(
-            cap_bar, text="파일 선택", width=85, height=28,
-            fg_color="#444444", hover_color="#333333", font=ctk.CTkFont(size=11),
+            cap_bar, text="파일 선택", width=95, height=30,
+            fg_color="#444444", hover_color="#333333", font=ctk.CTkFont(size=12),
             command=self._browse_image_file
         )
-        btn_browse_img.pack(side="left", padx=2)
+        btn_browse_img.pack(side="left", padx=4)
 
-        self.frame_preview = ctk.CTkFrame(left_f, height=75, fg_color="#181818", corner_radius=6)
+        self.frame_preview = ctk.CTkFrame(left_f, height=80, fg_color="#181818", corner_radius=6)
         self.frame_preview.pack(fill="x", padx=8, pady=2)
         self.lbl_img_preview = ctk.CTkLabel(
             self.frame_preview, text="이미지 미리보기 영역",
-            font=ctk.CTkFont(size=11), text_color="#777777"
+            font=ctk.CTkFont(size=12), text_color="#888888"
         )
         self.lbl_img_preview.pack(expand=True, pady=10)
 
         # [섹션 2] 대상 창 / URL / DOM 카탈로그
         s2_head = ctk.CTkFrame(left_f, fg_color="transparent")
-        s2_head.pack(fill="x", padx=8, pady=(4, 2))
-        ctk.CTkLabel(s2_head, text="대상 창 및 URL", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        s2_head.pack(fill="x", padx=8, pady=(6, 2))
+        ctk.CTkLabel(s2_head, text="대상 창 및 URL", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
 
         # 윈도우 창 선택 드롭다운
         win_bar = ctk.CTkFrame(left_f, fg_color="transparent")
         win_bar.pack(fill="x", padx=8, pady=(0, 2))
 
-        ctk.CTkLabel(win_bar, text="대상 창", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
-        self.cbo_windows = ctk.CTkComboBox(win_bar, values=["(창 검색 중)"], height=28, font=ctk.CTkFont(size=11))
-        self.cbo_windows.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        ctk.CTkLabel(win_bar, text="대상 창", font=ctk.CTkFont(size=12, weight="bold"), width=55).pack(side="left", padx=(0, 4))
+        self.cbo_windows = ctk.CTkComboBox(win_bar, values=["(창 검색 중)"], height=30, font=ctk.CTkFont(size=12))
+        self.cbo_windows.pack(side="left", fill="x", expand=True, padx=(0, 6))
 
         btn_refresh_wins = ctk.CTkButton(
-            win_bar, text="창 갱신", width=70, height=28, font=ctk.CTkFont(size=11), fg_color="#333333",
+            win_bar, text="창 갱신", width=75, height=30, font=ctk.CTkFont(size=12), fg_color="#333333",
             command=self._refresh_window_list
         )
         btn_refresh_wins.pack(side="right")
@@ -393,16 +392,16 @@ class AIVisionFrame(ctk.CTkFrame):
         url_bar = ctk.CTkFrame(left_f, fg_color="transparent")
         url_bar.pack(fill="x", padx=8, pady=(2, 2))
 
-        ctk.CTkLabel(url_bar, text="대상 URL", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(url_bar, text="대상 URL", font=ctk.CTkFont(size=12, weight="bold"), width=55).pack(side="left", padx=(0, 4))
         self.ent_target_url = ctk.CTkEntry(
-            url_bar, height=28, font=ctk.CTkFont(size=11), placeholder_text="예: http://175.119.156.105:3000/contract/list"
+            url_bar, height=30, font=ctk.CTkFont(size=12), placeholder_text="예: http://175.119.156.105:3000/contract/list"
         )
-        self.ent_target_url.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self.ent_target_url.pack(side="left", fill="x", expand=True, padx=(0, 6))
         self.ent_target_url.bind("<FocusOut>", lambda e: self._save_all_configs())
 
         self.btn_harvest_dom = ctk.CTkButton(
-            url_bar, text="DOM 수집", width=100, height=28,
-            fg_color="#1f6aa5", hover_color="#144d75", font=ctk.CTkFont(size=11, weight="bold"),
+            url_bar, text="DOM 수집", width=105, height=30,
+            fg_color="#1f6aa5", hover_color="#144d75", font=ctk.CTkFont(size=12, weight="bold"),
             command=self._start_harvest_dom
         )
         self.btn_harvest_dom.pack(side="right")
@@ -410,9 +409,9 @@ class AIVisionFrame(ctk.CTkFrame):
         # 유형별 조작 객체 탭뷰
         self.lbl_dom_status = ctk.CTkLabel(
             left_f, text="조작 객체 목록",
-            font=ctk.CTkFont(size=11, weight="bold"), text_color="#aaaaaa", anchor="w"
+            font=ctk.CTkFont(size=12, weight="bold"), text_color="#aaaaaa", anchor="w"
         )
-        self.lbl_dom_status.pack(fill="x", padx=8, pady=(2, 0))
+        self.lbl_dom_status.pack(fill="x", padx=8, pady=(4, 0))
 
         self.tabview_dom = ctk.CTkTabview(left_f, height=180)
         self.tabview_dom.pack(fill="both", expand=True, padx=8, pady=(1, 2))
@@ -439,23 +438,23 @@ class AIVisionFrame(ctk.CTkFrame):
         sel_box = ctk.CTkFrame(left_f, corner_radius=6, fg_color="#181818")
         sel_box.pack(fill="x", padx=8, pady=(2, 4))
 
-        ctk.CTkLabel(sel_box, text="선택 셀렉터", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(8, 4), pady=4)
-        self.lbl_selected_sel = ctk.CTkEntry(sel_box, height=28, font=ctk.CTkFont(family="Consolas", size=11), fg_color="#262626")
-        self.lbl_selected_sel.pack(side="left", fill="x", expand=True, padx=(0, 4), pady=4)
+        ctk.CTkLabel(sel_box, text="선택 셀렉터", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(8, 6), pady=4)
+        self.lbl_selected_sel = ctk.CTkEntry(sel_box, height=30, font=ctk.CTkFont(family="Consolas", size=12), fg_color="#262626")
+        self.lbl_selected_sel.pack(side="left", fill="x", expand=True, padx=(0, 6), pady=4)
         self.lbl_selected_sel.insert(0, "")
 
-        btn_copy_sel = ctk.CTkButton(sel_box, text="복사", width=50, height=28, font=ctk.CTkFont(size=11), fg_color="#444444", command=self._copy_selected_selector)
+        btn_copy_sel = ctk.CTkButton(sel_box, text="복사", width=55, height=30, font=ctk.CTkFont(size=12), fg_color="#444444", command=self._copy_selected_selector)
         btn_copy_sel.pack(side="right", padx=(0, 6), pady=4)
 
-        btn_inject_prompt = ctk.CTkButton(sel_box, text="요구사항 추가", width=95, height=28, font=ctk.CTkFont(size=11), fg_color="#00695c", command=self._inject_selected_into_prompt)
+        btn_inject_prompt = ctk.CTkButton(sel_box, text="요구사항 추가", width=105, height=30, font=ctk.CTkFont(size=12), fg_color="#00695c", command=self._inject_selected_into_prompt)
         btn_inject_prompt.pack(side="right", padx=(0, 4), pady=4)
 
         # [섹션 3] 요구사항 입력
         s3_head = ctk.CTkFrame(left_f, fg_color="transparent")
         s3_head.pack(fill="x", padx=8, pady=(2, 1))
-        ctk.CTkLabel(s3_head, text="자동화 요구사항", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left")
+        ctk.CTkLabel(s3_head, text="자동화 요구사항", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
 
-        self.txt_prompt = ctk.CTkTextbox(left_f, height=58, font=ctk.CTkFont(size=11))
+        self.txt_prompt = ctk.CTkTextbox(left_f, height=60, font=ctk.CTkFont(size=12))
         self.txt_prompt.pack(fill="x", padx=8, pady=(0, 4))
         self.txt_prompt.insert(
             "1.0",
@@ -464,8 +463,8 @@ class AIVisionFrame(ctk.CTkFrame):
 
         # 실행 버튼
         self.btn_generate = ctk.CTkButton(
-            left_f, text="코드 생성", height=36,
-            fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(size=12, weight="bold"),
+            left_f, text="코드 생성", height=38,
+            fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(size=13, weight="bold"),
             command=self._start_ai_generation
         )
         self.btn_generate.pack(fill="x", padx=8, pady=(2, 6))
@@ -478,10 +477,10 @@ class AIVisionFrame(ctk.CTkFrame):
 
         r_head = ctk.CTkFrame(right_f, fg_color="transparent")
         r_head.pack(fill="x", padx=8, pady=(8, 4))
-        ctk.CTkLabel(r_head, text="생성 코드", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        ctk.CTkLabel(r_head, text="생성 코드", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
 
         self.txt_result_code = ctk.CTkTextbox(
-            right_f, font=ctk.CTkFont(family="Consolas", size=12), fg_color="#181818"
+            right_f, font=ctk.CTkFont(family="Consolas", size=13), fg_color="#181818"
         )
         self.txt_result_code.pack(fill="both", expand=True, padx=8, pady=4)
 
@@ -489,22 +488,22 @@ class AIVisionFrame(ctk.CTkFrame):
         b_bar.pack(fill="x", padx=8, pady=(4, 8))
 
         btn_insert = ctk.CTkButton(
-            b_bar, text="스크립트 에디터 전송", width=160, height=34,
-            fg_color="#2e7d32", hover_color="#1b5e20", font=ctk.CTkFont(size=11, weight="bold"),
+            b_bar, text="스크립트 에디터 전송", width=170, height=36,
+            fg_color="#2e7d32", hover_color="#1b5e20", font=ctk.CTkFont(size=12, weight="bold"),
             command=self._do_insert_editor
         )
-        btn_insert.pack(side="left", padx=(0, 4))
+        btn_insert.pack(side="left", padx=(0, 6))
 
         btn_add_bot = ctk.CTkButton(
-            b_bar, text="봇 모듈 등록", width=140, height=34,
-            fg_color="#6a1b9a", hover_color="#4a148c", font=ctk.CTkFont(size=11, weight="bold"),
+            b_bar, text="봇 모듈 등록", width=150, height=36,
+            fg_color="#6a1b9a", hover_color="#4a148c", font=ctk.CTkFont(size=12, weight="bold"),
             command=self._do_add_bot
         )
         btn_add_bot.pack(side="left", padx=4)
 
         btn_copy = ctk.CTkButton(
-            b_bar, text="클립보드 복사", width=110, height=34,
-            fg_color="#444444", hover_color="#333333", font=ctk.CTkFont(size=11), command=self._copy_result
+            b_bar, text="클립보드 복사", width=120, height=36,
+            fg_color="#444444", hover_color="#333333", font=ctk.CTkFont(size=12), command=self._copy_result
         )
         btn_copy.pack(side="right")
 
@@ -553,11 +552,18 @@ class AIVisionFrame(ctk.CTkFrame):
                 self.cbo_ollama_model.set(models[0])
 
     # =========================================================================
-    # [실시간 DOM 수집]
+    # [실시간 DOM/UIA 수집 - 깜빡임 0%, 세션 100% 보존]
     # =========================================================================
     def _start_harvest_dom(self):
         url = self.ent_target_url.get().strip()
         selected_win_title = self.cbo_windows.get()
+
+        # 선택된 창의 HWND 탐색
+        target_hwnd = 0
+        for h, t in self.open_windows_list:
+            if t == selected_win_title:
+                target_hwnd = h
+                break
 
         if not url and not selected_win_title:
             messagebox.showwarning("입력 확인", "대상 웹 URL을 입력하거나 대상 창을 선택하십시오.")
@@ -565,11 +571,16 @@ class AIVisionFrame(ctk.CTkFrame):
 
         self._save_all_configs()
         self.btn_harvest_dom.configure(text="수집 중...", state="disabled")
-        self.lbl_dom_status.configure(text="DOM 수집 중...", text_color="#ffb74d")
+        self.lbl_dom_status.configure(text="객체 수집 중...", text_color="#ffb74d")
 
         def _worker():
             try:
-                res = DOMHarvester.harvest_live_dom(url, timeout_sec=15)
+                res = DOMHarvester.harvest_live_dom(
+                    url=url,
+                    hwnd=target_hwnd,
+                    window_title=selected_win_title,
+                    timeout_sec=15
+                )
                 self.after(0, lambda r=res: self._on_harvest_success(r))
             except Exception as e:
                 self.after(0, lambda err=str(e): self._on_harvest_error(err))
@@ -640,24 +651,24 @@ class AIVisionFrame(ctk.CTkFrame):
         card.pack(fill="x", pady=2, padx=2)
 
         top_r = ctk.CTkFrame(card, fg_color="transparent")
-        top_r.pack(fill="x", padx=6, pady=(4, 2))
+        top_r.pack(fill="x", padx=8, pady=(4, 2))
 
         ctk.CTkLabel(
-            top_r, text=f"{icon} {name}", font=ctk.CTkFont(size=11, weight="bold"), text_color="#ffffff", anchor="w"
+            top_r, text=f"{icon} {name}", font=ctk.CTkFont(size=12, weight="bold"), text_color="#ffffff", anchor="w"
         ).pack(side="left", fill="x", expand=True)
 
         btn_pick = ctk.CTkButton(
-            top_r, text="선택", width=50, height=24, font=ctk.CTkFont(size=11, weight="bold"),
+            top_r, text="선택", width=55, height=26, font=ctk.CTkFont(size=12, weight="bold"),
             fg_color="#1f6aa5", hover_color="#144d75",
             command=lambda: self._select_element(name, sel, code)
         )
         btn_pick.pack(side="right", padx=2)
 
         bot_r = ctk.CTkFrame(card, fg_color="transparent")
-        bot_r.pack(fill="x", padx=6, pady=(0, 4))
+        bot_r.pack(fill="x", padx=8, pady=(0, 4))
 
         ctk.CTkLabel(
-            bot_r, text=f"셀렉터: {sel}", font=ctk.CTkFont(family="Consolas", size=11), text_color="#64b5f6", anchor="w"
+            bot_r, text=f"셀렉터: {sel}", font=ctk.CTkFont(family="Consolas", size=12), text_color="#64b5f6", anchor="w"
         ).pack(side="left", fill="x", expand=True)
 
     def _select_element(self, name: str, sel: str, code: str):
@@ -743,7 +754,7 @@ class AIVisionFrame(ctk.CTkFrame):
     def _display_preview_image(self, path: str):
         try:
             pil_img = Image.open(path)
-            pil_img.thumbnail((380, 70))
+            pil_img.thumbnail((380, 75))
             ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
 
             self.lbl_img_preview.configure(image=ctk_img, text="")
