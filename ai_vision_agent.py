@@ -203,20 +203,28 @@ class OllamaVisionAgent:
 
     @classmethod
     def list_installed_models(cls, ollama_url: str = "http://localhost:11434") -> List[str]:
+        """Ollama 설치 모델 목록 조회 (비전 AI 모델 vl/vision/llava 등 제외 및 코드/텍스트 모델 우선 정렬)"""
+        vision_keywords = ["vl", "vision", "llava", "minicpm", "moondream", "bakllava"]
         try:
             r = requests.get(f"{ollama_url.rstrip('/')}/api/tags", timeout=3)
             if r.status_code == 200:
-                models = [m["name"] for m in r.json().get("models", [])]
-                vision_keywords = ["vl", "vision", "llava", "minicpm", "moondream", "gemma"]
-                def sort_key(m):
-                    for kw in vision_keywords:
-                        if kw in m.lower():
+                all_models = [m["name"] for m in r.json().get("models", [])]
+                filtered = [
+                    m for m in all_models
+                    if not any(kw in m.lower() for kw in vision_keywords)
+                ]
+                if filtered:
+                    def sort_key(m):
+                        ml = m.lower()
+                        if "coder" in ml or "code" in ml:
                             return 0
-                    return 1
-                return sorted(models, key=sort_key)
+                        return 1
+                    return sorted(filtered, key=sort_key)
+                elif all_models:
+                    return all_models
         except Exception:
             pass
-        return ["qwen3-vl:4b", "llama3.2-vision", "llava", "qwen2.5:7b"]
+        return ["qwen2.5-coder:7b", "qwen2.5:7b", "deepseek-coder:6.7b", "codellama:7b", "llama3.1:8b"]
 
     @classmethod
     def call_ollama_vision(cls, ollama_url: str, model: str, image_path: str,
@@ -382,7 +390,7 @@ class AIVisionFrame(ctk.CTkFrame):
         btn_refresh_ollama = ctk.CTkButton(self.f_ollama, text="조회", width=40, height=26, font=ctk.CTkFont(size=11), fg_color="#1f6aa5", command=self._refresh_ollama_models)
         btn_refresh_ollama.pack(side="left", padx=2)
         ctk.CTkLabel(self.f_ollama, text="모델", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=4)
-        self.cbo_ollama_model = ctk.CTkComboBox(self.f_ollama, values=["qwen3-vl:4b", "gemma3:12b", "llava"], width=120, height=26, font=ctk.CTkFont(size=11))
+        self.cbo_ollama_model = ctk.CTkComboBox(self.f_ollama, values=["qwen2.5-coder:7b", "qwen2.5:7b", "deepseek-coder:6.7b"], width=120, height=26, font=ctk.CTkFont(size=11))
         self.cbo_ollama_model.pack(side="left")
 
         # --- 수직 구분선 ---
@@ -2367,7 +2375,7 @@ class AIVisionFrame(ctk.CTkFrame):
         target_u = "http://175.119.156.105:3000/contract/list"
         last_engine = "Google Gemini"
         last_gemini_model = "gemini-2.5-flash"
-        last_ollama_model = "qwen3-vl:4b"
+        last_ollama_model = "qwen2.5-coder:7b"
 
         for cfg_path in [
             self._CONFIG_FILE,
