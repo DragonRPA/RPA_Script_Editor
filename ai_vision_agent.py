@@ -1374,7 +1374,7 @@ class AIVisionFrame(ctk.CTkFrame):
             type_label = raw_etype or "DOM 요소"
             header_color = "#ffd54f"
 
-            # 셀렉트/드롭다운인 경우 하위 <option> 목록을 동적으로 추출하여 실제 옵션 선택 메뉴 추가
+            # 1. 셀렉트/드롭다운인 경우 하위 <option> 목록을 동적으로 추출하여 실제 옵션 선택 메뉴 추가
             if "select" in etype or "dropdown" in etype or "combo" in etype:
                 opts = list(item.get("options") or [])
                 if not opts and item.get("html"):
@@ -1393,6 +1393,27 @@ class AIVisionFrame(ctk.CTkFrame):
                     actions.append(("전체 옵션 수집", f"{{{var_name}}}의 모든 옵션 목록을 수집"))
                 else:
                     actions = self._get_actions_for(raw_etype)
+
+            # 2. 입력창(input/textarea/text/password 등)인 경우 Keep 데이터 변수({row.컬럼}, {file_list}) 주입 메뉴 1순위 노출
+            elif (
+                etype in ("input", "text", "password", "number", "email", "tel", "search", "date")
+                or "input" in etype or "text" in etype or "pass" in etype or "textarea" in etype
+            ):
+                actions = []
+                data_vars = [k for k in self.keep_list if k.get("keep_type") in ("data_column", "file_array")]
+                for dvar in data_vars:
+                    dvname = dvar.get("var_name", "")
+                    if dvar.get("keep_type") == "data_column":
+                        actions.append((f"변수 주입: {{{dvname}}}", f"{{{var_name}}}에 {{{dvname}}} 값을 입력"))
+                    elif dvar.get("keep_type") == "file_array":
+                        actions.append((f"파일명 주입: {{{dvname}}}", f"{{{var_name}}}에 {{{dvname}}} 의 파일명을 입력"))
+
+                # 기본 입력 액션들 추가
+                actions.append(("직접 값 입력", f"{{{var_name}}}에 '{{값}}'을 입력"))
+                actions.append(("내용 지우고 입력", f"{{{var_name}}}의 내용을 지우고 '{{값}}'을 입력"))
+                actions.append(("내용 지우기", f"{{{var_name}}}의 내용을 지우기"))
+                actions.append(("Enter 키 입력", f"{{{var_name}}}에서 Enter 키를 누르기"))
+                actions.append(("현재 값 확인", f"{{{var_name}}}의 현재 입력값을 확인"))
             else:
                 actions = self._get_actions_for(raw_etype)
 
@@ -1424,6 +1445,14 @@ class AIVisionFrame(ctk.CTkFrame):
             command=pop.destroy
         ).pack(side="right", padx=4)
 
+        # 액션 목록 스크롤 가능 컨테이너 (항목 많을 때 자동 스크롤)
+        use_scroll = len(actions) > 7
+        if use_scroll:
+            content_f = ctk.CTkScrollableFrame(pop, fg_color="transparent", width=340, height=360)
+        else:
+            content_f = ctk.CTkFrame(pop, fg_color="transparent")
+        content_f.pack(fill="both", expand=True, padx=2, pady=2)
+
         # 액션 버튼 목록
         for label, template in actions:
             phrase = template.replace("{var}", f"{{{var_name}}}")
@@ -1432,18 +1461,32 @@ class AIVisionFrame(ctk.CTkFrame):
                 self._insert_phrase(ph)
                 p.destroy()
 
+            # 항목별 강조 텍스트 색상
+            if "변수 주입" in label:
+                btn_txt_color = "#81c784"
+                btn_font_w = "bold"
+            elif "파일명 주입" in label:
+                btn_txt_color = "#ce93d8"
+                btn_font_w = "bold"
+            elif "선택:" in label:
+                btn_txt_color = "#64b5f6"
+                btn_font_w = "bold"
+            else:
+                btn_txt_color = "#dddddd"
+                btn_font_w = "normal"
+
             btn = ctk.CTkButton(
-                pop, text=f"  {label}",
-                anchor="w", height=30, font=ctk.CTkFont(size=12),
+                content_f, text=f"  {label}",
+                anchor="w", height=28, font=ctk.CTkFont(size=12, weight=btn_font_w),
                 fg_color="transparent", hover_color="#2a2a2a",
-                text_color="#dddddd", corner_radius=0,
+                text_color=btn_txt_color, corner_radius=0,
                 command=_pick
             )
             btn.pack(fill="x", padx=0, pady=0)
 
             # 미리보기 라벨
             ctk.CTkLabel(
-                pop, text=f"    → {phrase}",
+                content_f, text=f"    → {phrase}",
                 anchor="w", font=ctk.CTkFont(size=11), text_color="#555555"
             ).pack(fill="x", padx=0)
 
