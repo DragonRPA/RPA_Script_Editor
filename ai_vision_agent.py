@@ -470,7 +470,12 @@ class AIVisionFrame(ctk.CTkFrame):
         ds_head.pack(fill="x", padx=8, pady=(4, 2))
         ctk.CTkLabel(ds_head, text="데이터 소스", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
         ctk.CTkButton(
-            ds_head, text="파일 선택", width=70, height=24,
+            ds_head, text="폴더 배열", width=65, height=24,
+            font=ctk.CTkFont(size=11), fg_color="#4a148c", hover_color="#6a1b9a",
+            command=self._load_folder_source
+        ).pack(side="right", padx=(4, 0))
+        ctk.CTkButton(
+            ds_head, text="파일 선택", width=65, height=24,
             font=ctk.CTkFont(size=11), fg_color="#1a3a5c", hover_color="#1f6aa5",
             command=self._load_data_source
         ).pack(side="right")
@@ -1047,13 +1052,16 @@ class AIVisionFrame(ctk.CTkFrame):
             row.pack(fill="x", pady=2, padx=2)
 
             vname = item["var_name"]
-            # 배지 및 색상: URL(시안블루), Data(연초록), Element(골드노랑)
+            # 배지 및 색상: URL(시안블루), Data(연초록), File Array(라벤더퍼플), Element(골드노랑)
             if ktype == "target_url":
                 badge_prefix = "[URL] "
                 color_var = "#29b6f6"
             elif ktype == "data_column":
                 badge_prefix = "[DATA] "
                 color_var = "#81c784"
+            elif ktype == "file_array":
+                badge_prefix = "[FILES] "
+                color_var = "#ce93d8"
             else:
                 badge_prefix = ""
                 color_var = "#ffd54f"
@@ -1113,14 +1121,20 @@ class AIVisionFrame(ctk.CTkFrame):
             print(f"Keep 토큰 삽입 오류: {e}")
 
     def _init_prompt_highlight(self):
-        """프롬프트 에디터 내 {변수명} 토큰 하이라이트 태그 및 이벤트 바인딩"""
+        """프롬프트 에디터 텍스트 태그 설정 (URL/DOM/DATA/FILE/ACTION 5단 컬러 하이라이트)"""
         try:
             tb = self.txt_prompt._textbox
-            tb.tag_config(
-                "keep_token",
-                foreground="#ffd54f",
-                font=("Consolas", 12, "bold")
-            )
+            # 🌐 URL (시안 블루)
+            tb.tag_config("token_url", foreground="#29b6f6", font=("Consolas", 12, "bold"))
+            # 🎯 DOM Element (골드 옐로우)
+            tb.tag_config("token_elem", foreground="#ffd54f", font=("Consolas", 12, "bold"))
+            # 📊 Data Column (에메랄드 그린)
+            tb.tag_config("token_data", foreground="#81c784", font=("Consolas", 12, "bold"))
+            # 📁 File Array (라벤더 퍼플)
+            tb.tag_config("token_file", foreground="#ce93d8", font=("Consolas", 12, "bold"))
+            # ⚡ Action Methods (연보라)
+            tb.tag_config("token_action", foreground="#e1bee7", font=("Consolas", 12, "bold"))
+
             tb.bind("<KeyRelease>", self._highlight_keep_tokens)
             tb.bind("<<Paste>>", lambda e: self.after(50, self._highlight_keep_tokens))
             self._highlight_keep_tokens()
@@ -1128,15 +1142,49 @@ class AIVisionFrame(ctk.CTkFrame):
             print(f"하이라이트 설정 실패: {e}")
 
     def _highlight_keep_tokens(self, event=None):
-        """프롬프트 에디터 내 {변수명} 토큰을 노란색 굵은 글씨로 실시간 하이라이트"""
+        """프롬프트 에디터 내 {변수명} 및 표준 액션 동사를 5W1H 멀티 컬러로 실시간 하이라이트"""
         try:
             tb = self.txt_prompt._textbox
-            tb.tag_remove("keep_token", "1.0", "end")
+            for tag in ["token_url", "token_elem", "token_data", "token_file", "token_action", "keep_token"]:
+                tb.tag_remove(tag, "1.0", "end")
+
             content = tb.get("1.0", "end")
+
+            # 1. Keep 목록 매핑 생성
+            keep_type_map = {itm.get("var_name"): itm.get("keep_type", "element") for itm in self.keep_list}
+
+            # 2. {변수명} 토큰 매칭
             for match in re.finditer(r"\{[^{}]+\}", content):
+                vname = match.group(0)[1:-1].strip()
+                ktype = keep_type_map.get(vname, "")
+                if not ktype:
+                    if vname.startswith("url_"):
+                        ktype = "target_url"
+                    elif vname.startswith("row.") or vname.startswith("col_"):
+                        ktype = "data_column"
+                    elif "file" in vname or "files" in vname:
+                        ktype = "file_array"
+                    else:
+                        ktype = "element"
+
+                tag_name = (
+                    "token_url" if ktype == "target_url"
+                    else "token_data" if ktype == "data_column"
+                    else "token_file" if ktype == "file_array"
+                    else "token_elem"
+                )
+
                 start_idx = f"1.0 + {match.start()} chars"
                 end_idx = f"1.0 + {match.end()} chars"
-                tb.tag_add("keep_token", start_idx, end_idx)
+                tb.tag_add(tag_name, start_idx, end_idx)
+
+            # 3. 표준 액션 동사 하이라이트
+            action_words = ["접속", "이동", "클릭", "더블클릭", "입력", "지우기", "선택", "체크", "수집", "대기", "첨부", "업로드", "다운로드"]
+            for act in action_words:
+                for match in re.finditer(rf"\b{re.escape(act)}\b", content):
+                    start_idx = f"1.0 + {match.start()} chars"
+                    end_idx = f"1.0 + {match.end()} chars"
+                    tb.tag_add("token_action", start_idx, end_idx)
         except Exception:
             pass
 
@@ -1403,6 +1451,145 @@ class AIVisionFrame(ctk.CTkFrame):
 
         except Exception as e:
             messagebox.showerror("데이터 소스 오류", f"파일 읽기 실패:\n{e}")
+
+    def _load_folder_source(self):
+        """폴더 경로 선택 → 확장자 입력(예: pdf) → 폴더 내 파일명 목록을 배열 변수(file_array)로 Keep에 등록"""
+        from tkinter import filedialog
+        folder = filedialog.askdirectory(title="배치 처리 대상 폴더 선택")
+        if not folder:
+            return
+
+        folder = os.path.abspath(folder)
+        folder_name = os.path.basename(folder) or folder
+
+        pop = ctk.CTkToplevel(self)
+        pop.title("폴더 파일 배열 등록")
+        pop.attributes("-topmost", True)
+        pop.geometry("460x280")
+        pop.configure(fg_color="#1a1a1a")
+
+        # 헤더
+        hdr = ctk.CTkFrame(pop, fg_color="#2c1338", corner_radius=4)
+        hdr.pack(fill="x", padx=8, pady=8)
+        ctk.CTkLabel(
+            hdr, text=f"  폴더: {folder_name}",
+            font=ctk.CTkFont(size=12, weight="bold"), text_color="#ce93d8", anchor="w"
+        ).pack(side="left", padx=8, pady=8)
+
+        body_f = ctk.CTkFrame(pop, fg_color="transparent")
+        body_f.pack(fill="both", expand=True, padx=12, pady=4)
+
+        # 경로 표시
+        ctk.CTkLabel(body_f, text="선택 경로:", font=ctk.CTkFont(size=11), text_color="#888").grid(row=0, column=0, sticky="w", pady=4)
+        lbl_path = ctk.CTkLabel(body_f, text=folder[:45] + ("..." if len(folder) > 45 else ""), font=ctk.CTkFont(family="Consolas", size=11), text_color="#bbbbbb")
+        lbl_path.grid(row=0, column=1, sticky="w", padx=6, pady=4)
+
+        # 확장자 입력
+        ctk.CTkLabel(body_f, text="파일 확장자:", font=ctk.CTkFont(size=11), text_color="#888").grid(row=1, column=0, sticky="w", pady=4)
+        ent_ext = ctk.CTkEntry(body_f, width=160, height=26, font=ctk.CTkFont(family="Consolas", size=12))
+        ent_ext.insert(0, "pdf")
+        ent_ext.grid(row=1, column=1, sticky="w", padx=6, pady=4)
+
+        # 변수명 입력
+        ctk.CTkLabel(body_f, text="Keep 변수명:", font=ctk.CTkFont(size=11), text_color="#888").grid(row=2, column=0, sticky="w", pady=4)
+        ent_var = ctk.CTkEntry(body_f, width=160, height=26, font=ctk.CTkFont(family="Consolas", size=12))
+        ent_var.insert(0, "file_list")
+        ent_var.grid(row=2, column=1, sticky="w", padx=6, pady=4)
+
+        # 실시간 파일 감지 라벨
+        lbl_preview = ctk.CTkLabel(body_f, text="감지 중...", font=ctk.CTkFont(size=11), text_color="#ce93d8")
+        lbl_preview.grid(row=3, column=0, columnspan=2, sticky="w", pady=8)
+
+        def _update_count(*args):
+            ext_clean = ent_ext.get().strip().lstrip(".")
+            try:
+                files = [
+                    f for f in os.listdir(folder)
+                    if os.path.isfile(os.path.join(folder, f)) and
+                    (ext_clean == "*" or not ext_clean or f.lower().endswith(f".{ext_clean.lower()}"))
+                ]
+                lbl_preview.configure(
+                    text=f"총 {len(files)}개 파일 일치  (예: {', '.join(files[:2]) if files else '없음'})",
+                    text_color="#81c784" if files else "#ffb74d"
+                )
+            except Exception as e:
+                lbl_preview.configure(text=f"조회 실패: {e}", text_color="#e57373")
+
+        ent_ext.bind("<KeyRelease>", _update_count)
+        _update_count()
+
+        def _apply():
+            ext_clean = ent_ext.get().strip().lstrip(".")
+            vname = ent_var.get().strip() or "file_list"
+            try:
+                matched_files = [
+                    f for f in os.listdir(folder)
+                    if os.path.isfile(os.path.join(folder, f)) and
+                    (ext_clean == "*" or not ext_clean or f.lower().endswith(f".{ext_clean.lower()}"))
+                ]
+            except Exception as e:
+                messagebox.showerror("오류", f"폴더 조회 실패: {e}")
+                return
+
+            if not matched_files:
+                if not messagebox.askyesno("확인", "해당 확장자의 파일이 없습니다. 그래도 변수를 등록하시겠습니까?"):
+                    return
+
+            # Keep 아이템 객체 생성
+            item_dict = {
+                "keep_type":    "file_array",
+                "var_name":     vname,
+                "column_name":  ext_clean,
+                "data_type":    "list[str]",
+                "source_file":  folder,
+                "label":        f"{folder_name}/*.{ext_clean} ({len(matched_files)}개)",
+                "selector":     folder,
+                "element_type": "array",
+                "path":         f"{folder_name}/*.{ext_clean} ({len(matched_files)}개)",
+                "file_names":   matched_files
+            }
+
+            # 중복 체크 후 업데이트 또는 추가
+            for i, existing in enumerate(self.keep_list):
+                if existing.get("var_name") == vname:
+                    self.keep_list[i] = item_dict
+                    break
+            else:
+                self.keep_list.append(item_dict)
+
+            # DB 영구 저장
+            if getattr(self, "db", None) and getattr(self, "current_project", None):
+                try:
+                    eid = self.db.save_keep_element(
+                        project_id=self.current_project["id"],
+                        var_name=vname,
+                        keep_type="file_array",
+                        column_name=ext_clean,
+                        data_type="list[str]",
+                        source_file=folder,
+                        label=item_dict["label"],
+                        path=item_dict["path"]
+                    )
+                    item_dict["id"] = eid
+                except Exception as e:
+                    print(f"DB Keep 저장 에러: {e}")
+
+            # UI 갱신
+            self.lbl_ds_status.configure(
+                text=f"{folder_name}/*.{ext_clean}  |  {len(matched_files)}개 파일  |  {{{vname}}} 등록됨",
+                text_color="#ce93d8"
+            )
+            self.frm_ds_info.configure(height=36)
+            self._render_keep_list()
+            self._render_var_chips()
+            self._render_data_chips()
+            pop.destroy()
+            messagebox.showinfo("등록 완료", f"{{{vname}}} 배열 변수가 Keep 목록에 등록되었습니다.\n(총 {len(matched_files)}개 파일)")
+
+        btn_box = ctk.CTkFrame(pop, fg_color="transparent")
+        btn_box.pack(fill="x", padx=12, pady=(0, 10))
+        ctk.CTkButton(btn_box, text="✓ Keep 배열 변수 등록", height=32, fg_color="#4a148c", hover_color="#6a1b9a", font=ctk.CTkFont(size=12, weight="bold"), command=_apply).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        ctk.CTkButton(btn_box, text="취소", height=32, width=80, fg_color="#333", hover_color="#444", command=pop.destroy).pack(side="right")
 
     def _show_header_keep_picker(self, loader=None):
         """컬럼 헤더 목록 표시 + [Keep+] 버튼으로 data_column Keep 추가 팝업"""
@@ -1686,7 +1873,7 @@ class AIVisionFrame(ctk.CTkFrame):
         # ② 데이터 컬럼 Keep (data_column 타입)
         data_items = [it for it in self.keep_list if it.get("keep_type") == "data_column"]
         if data_items:
-            lines.append("[데이터 소스]")
+            lines.append("[데이터 소스 - 테이블]")
             lines.append(f"  파일: {self.data_source_path}")
             lines.append(f"  총 행 수: {self.data_source_row_count}행")
             lines.append("  Keep된 컬럼:")
@@ -1702,18 +1889,36 @@ class AIVisionFrame(ctk.CTkFrame):
             lines.append(f"  → 코드에서 row[\"{data_items[0]['column_name']}\"] 형태로 값 참조")
             lines.append("")
 
+        # ②-2 폴더 파일명 배열 Keep (file_array 타입)
+        file_items = [it for it in self.keep_list if it.get("keep_type") == "file_array"]
+        if file_items:
+            lines.append("[데이터 소스 - 폴더 파일명 배열]")
+            for item in file_items:
+                folder = item.get("source_file") or item.get("path", "")
+                ext = item.get("column_name") or "*"
+                fnames = item.get("file_names", [])
+                lines.append(f"  {{{item['var_name']}}} = folder: \"{folder}\" | extension: \"*.{ext}\" | 총 {len(fnames)}개 파일")
+                if fnames:
+                    lines.append(f"    감지된 파일명 샘플: {fnames[:5]}")
+                lines.append(f"  → 코드에서 {item['var_name']} = [f for f in os.listdir(r\"{folder}\") if f.endswith(\".{ext}\")]")
+                lines.append(f"    또는 for file_name in {item['var_name']}: 형태로 파일 목록 순회 루프 작성")
+            lines.append("")
+
         # ③ 요구사항
         lines.append("[요구사항]")
         lines.append(user_prompt)
         lines.append("")
 
         # ④ 코드 생성 지침
-        if url_items or elem_items or data_items:
+        if url_items or elem_items or data_items or file_items:
             lines.append("[코드 생성 지침]")
             if url_items:
                 lines.append("  - [대상 URL / 시스템]의 변수명을 page.goto() 또는 시작 접속 URL로 활용할 것")
             if elem_items:
                 lines.append("  - [고정 참조 객체]의 변수명을 실제 Playwright 셀렉터로 대응할 것")
+            if file_items:
+                lines.append("  - [폴더 파일명 배열]의 변수명을 os.listdir() 또는 파일 리스트 순회 루프로 대응할 것")
+                lines.append("  - import os 모듈 또는 from pathlib import Path 를 활용할 것")
             if data_items:
                 lines.append("  - from rpa_data_loader import DataLoader 를 임포트할 것")
                 lines.append(f"  - loader = DataLoader(\"{self.data_source_path}\") 로 파일을 로드할 것")
@@ -1942,18 +2147,34 @@ class AIVisionFrame(ctk.CTkFrame):
             # 2. Keep Elements (rpa_keep_elements) 로드
             items = self.db.list_keep_elements(pid)
             for itm in items:
+                ktype = itm.get("keep_type") or "element"
+                fnames = []
+                if ktype == "file_array":
+                    folder = itm.get("source_file") or itm.get("selector") or ""
+                    ext = itm.get("column_name") or "*"
+                    if os.path.isdir(folder):
+                        try:
+                            fnames = [
+                                f for f in os.listdir(folder)
+                                if os.path.isfile(os.path.join(folder, f)) and
+                                (ext == "*" or not ext or f.lower().endswith(f".{ext.lower()}"))
+                            ]
+                        except Exception:
+                            pass
+
                 self.keep_list.append({
                     "id": itm.get("id"),
                     "var_name": itm.get("var_name"),
                     "label": itm.get("label") or "",
                     "selector": itm.get("selector") or "",
-                    "element_type": itm.get("element_type") or "element",
+                    "element_type": itm.get("element_type") or ("array" if ktype == "file_array" else "element"),
                     "path": itm.get("path") or "",
-                    "keep_type": itm.get("keep_type") or "element",
+                    "keep_type": ktype,
                     "target_id": itm.get("target_id"),
                     "column_name": itm.get("column_name") or "",
                     "data_type": itm.get("data_type") or "",
-                    "source_file": itm.get("source_file") or ""
+                    "source_file": itm.get("source_file") or "",
+                    "file_names": fnames
                 })
             self._render_keep_list()
             self._render_var_chips()
