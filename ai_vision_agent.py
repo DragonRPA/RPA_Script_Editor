@@ -222,11 +222,10 @@ class OllamaVisionAgent:
     def call_ollama_vision(cls, ollama_url: str, model: str, image_path: str,
                            user_prompt: str, target_url: str = "", page_html: str = "",
                            browser_choice: str = "Chrome") -> Tuple[str, str]:
-        if not os.path.exists(image_path):
-            raise FileNotFoundError(f"이미지 파일을 찾을 수 없습니다: {image_path}")
-
-        with open(image_path, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+        img_b64 = None
+        if image_path and os.path.exists(image_path):
+            with open(image_path, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode("utf-8")
 
         prompt_body = f"{cls.get_system_instruction(browser_choice)}\n\n"
         if target_url:
@@ -236,19 +235,23 @@ class OllamaVisionAgent:
         if page_html:
             prompt_body += f"[UI 객체 목록]\n{page_html[:4500]}\n\n"
         prompt_body += f"[요구사항]\n{user_prompt}\n\n"
-        prompt_body += "위 화면 스크린샷과 UI 객체 목록에서 타겟 요소를 찾아 Playwright 코드를 작성하십시오."
+        if img_b64:
+            prompt_body += "위 화면 스크린샷과 UI 객체 목록에서 타겟 요소를 찾아 Playwright 코드를 작성하십시오."
+        else:
+            prompt_body += "위 UI 객체 목록과 요구사항을 바탕으로 Playwright 코드를 작성하십시오."
 
         url = f"{ollama_url.rstrip('/')}/api/generate"
         payload = {
             "model": model,
             "prompt": prompt_body,
-            "images": [img_b64],
             "stream": False,
             "options": {
                 "temperature": 0.2,
                 "num_predict": 4096
             }
         }
+        if img_b64:
+            payload["images"] = [img_b64]
 
         resp = requests.post(url, json=payload, timeout=90)
         if resp.status_code != 200:
@@ -528,7 +531,7 @@ class AIVisionFrame(ctk.CTkFrame):
         self.txt_prompt.pack(fill="both", expand=True, padx=8, pady=(0, 4))
         self.txt_prompt.insert(
             "1.0",
-            "아이디 입력창에 'admin', 비밀번호에 '1234'를 입력하고 로그인 버튼을 클릭."
+            "아래의 요구를 순차적으로 수행하는 파이썬-playwrite 자동화 스크립트를 작성하시오\n\n"
         )
         self._init_prompt_highlight()
 
@@ -1956,6 +1959,8 @@ class AIVisionFrame(ctk.CTkFrame):
 
         # ③ 요구사항
         lines.append("[요구사항]")
+        if "아래의 요구를 순차적으로 수행하는" not in user_prompt:
+            lines.append("아래의 요구를 순차적으로 수행하는 파이썬-playwrite 자동화 스크립트를 작성하시오:")
         lines.append(user_prompt)
         lines.append("")
 
