@@ -1,4 +1,29 @@
-﻿## [v2.4.9.Build.30] - 2026-08-22 15:05
+﻿## [v2.5.0.Build.31] - 2026-08-22 15:25
+
+### 🔗 [CDP 전용 바로가기 생성 방식 전환] Chrome/Edge 단일 인스턴스 충돌 근본 해결
+
+#### 문제 배경
+- Chrome/Edge는 Single Instance 정책으로, 이미 실행 중이면 새 프로세스가 기존 창에 탭 추가 후 종료
+- 기존 [CDP 모드 Chrome/Edge 시작] 버튼: 기존 브라우저가 있으면 CDP 포트가 실제로 열리지 않음
+- 결과: [연결 확인] 시 항상 "CDP 미연결" 표시
+
+#### 해결 방식: CDP 전용 바탕화면 바로가기 자동 생성 (_create_cdp_shortcut)
+1. **기존 버튼 교체**: [CDP 모드 Chrome/Edge 시작] → [Chrome CDP 바로가기 생성] / [Edge CDP 바로가기 생성]
+2. **전용 프로필 폴더 분리**:
+   - Chrome: %LOCALAPPDATA%\Google\Chrome\User Data_CDP (포트 9222)
+   - Edge: %LOCALAPPDATA%\Microsoft\Edge\User Data_CDP (포트 9223)
+   - 기존 프로필의 Default 폴더를 복사 → 저장된 비밀번호·쿠키·세션 최대한 유지
+   - 기존 브라우저와 프로필 잠금 충돌 없음 (별도 폴더)
+3. **바로가기 형식**:
+   - pywin32 설치 시: .lnk 정식 Windows 바로가기
+   - pywin32 미설치 시: .bat Fallback 자동 전환
+4. **사용 흐름**:
+   - 버튼 클릭 → 바탕화면에 바로가기 생성
+   - 기존 Chrome/Edge 닫기 → 새 바로가기로 브라우저 시작 → 로그인
+   - [연결 확인] → 초록 표시 → DOM 수집 (select 드롭다운 포함 완벽)
+
+---
+## [v2.4.9.Build.30] - 2026-08-22 15:05
 
 ### 🔌 [CDP(Chrome DevTools Protocol) 직통 수집 탑재] 세션·쿠키 완전 보존 HTML DOM 추출
 
@@ -497,4 +522,5 @@
 5. **JSON 시나리오 재생 엔진**
    - setup_steps(1회 로그인) + loop_steps(건별 반복) 이중 구조
    - 변수 바인딩: {{계약번호}}, {{첨부파일_경로}} 실시간 치환
+
 

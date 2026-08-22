@@ -419,14 +419,14 @@ class AIVisionFrame(ctk.CTkFrame):
         btn_cdp_check.pack(side="left", padx=(0, 4), pady=4)
 
         btn_cdp_launch = ctk.CTkButton(
-            cdp_bar, text="CDP 모드 Chrome 시작", width=160, height=26, font=ctk.CTkFont(size=12),
-            fg_color="#1a3a5c", hover_color="#122a44", command=self._launch_chrome_cdp
+            cdp_bar, text="Chrome CDP 바로가기 생성", width=180, height=26, font=ctk.CTkFont(size=12),
+            fg_color="#1a3a5c", hover_color="#122a44", command=lambda: self._create_cdp_shortcut("chrome")
         )
         btn_cdp_launch.pack(side="left", padx=(0, 4), pady=4)
 
         btn_cdp_launch_edge = ctk.CTkButton(
-            cdp_bar, text="CDP 모드 Edge 시작", width=148, height=26, font=ctk.CTkFont(size=12),
-            fg_color="#1a3a3a", hover_color="#122a2a", command=self._launch_edge_cdp
+            cdp_bar, text="Edge CDP 바로가기 생성", width=168, height=26, font=ctk.CTkFont(size=12),
+            fg_color="#1a3a3a", hover_color="#122a2a", command=lambda: self._create_cdp_shortcut("edge")
         )
         btn_cdp_launch_edge.pack(side="left", padx=(0, 6), pady=4)
 
@@ -686,64 +686,119 @@ class AIVisionFrame(ctk.CTkFrame):
                 text_color="#ff5252"
             )
 
-    def _launch_chrome_cdp(self):
+    def _create_cdp_shortcut(self, browser: str = "chrome"):
         """
-        Chrome을 --remote-debugging-port=9222 플래그로 실행.
-        이미 열려있는 Chrome이 있으면 해당 세션에서 새 창을 열려고 시도.
-        CDP 모드 Chrome이 시작되면 DOM 수집 시 전략 0(CDP 직통)이 활성화됨.
+        Chrome 또는 Edge의 CDP 전용 바탕화면 바로가기를 자동 생성.
+
+        설계 핵심:
+          --remote-debugging-port : CDP 포트 개방 (Chrome=9222 / Edge=9223)
+          --user-data-dir         : 기존 프로필 폴더의 Default만 CDP 전용 폴더로 복사
+                                    → 저장된 비밀번호·쿠키·세션 유지
+                                    → 기존 브라우저와 잠금 충돌 없음 (별도 폴더)
+
+        사용 흐름:
+          1. 버튼 클릭 → 바탕화면에 .lnk 생성
+          2. 기존 Chrome/Edge 모두 닫기
+          3. 새 바로가기로 브라우저 실행 → 로그인
+          4. RPA 도구 [연결 확인] 클릭 → 초록 표시 → DOM 수집 (select 포함 완벽)
         """
         import subprocess
-        chrome_paths = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Google\Chrome\Application\chrome.exe"),
-        ]
-        exe = None
-        for p in chrome_paths:
-            if os.path.exists(p):
-                exe = p
-                break
+        import shutil
+
+        LOCAL = os.environ.get("LOCALAPPDATA", "")
+        ROAMING = os.environ.get("APPDATA", "")
+        DESKTOP = os.path.join(os.environ.get("USERPROFILE", ""), "Desktop")
+
+        if browser == "chrome":
+            exe_candidates = [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                os.path.join(LOCAL, r"Google\Chrome\Application\chrome.exe"),
+            ]
+            src_profile = os.path.join(LOCAL, r"Google\Chrome\User Data")
+            cdp_profile = os.path.join(LOCAL, r"Google\Chrome\User Data_CDP")
+            port         = 9222
+            label        = "Chrome"
+            sc_name      = "Chrome CDP 모드.lnk"
+        else:
+            exe_candidates = [
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                os.path.join(LOCAL, r"Microsoft\Edge\Application\msedge.exe"),
+            ]
+            src_profile = os.path.join(LOCAL, r"Microsoft\Edge\User Data")
+            cdp_profile = os.path.join(LOCAL, r"Microsoft\Edge\User Data_CDP")
+            port         = 9223
+            label        = "Edge"
+            sc_name      = "Edge CDP 모드.lnk"
+
+        # 실행 파일 탐색
+        exe = next((p for p in exe_candidates if os.path.exists(p)), None)
         if not exe:
-            messagebox.showwarning("Chrome 경로 오류", "Chrome 실행 파일을 찾을 수 없습니다.\n직접 설치 경로를 확인하십시오.")
+            messagebox.showerror("경로 오류", f"{label} 실행 파일을 찾을 수 없습니다.")
             return
 
-        url = self.ent_target_url.get().strip() or "about:blank"
-        subprocess.Popen([
-            exe,
-            "--remote-debugging-port=9222",
-            "--no-first-run",
-            "--no-default-browser-check",
-            url
-        ])
-        self.lbl_cdp_status.configure(text="● Chrome CDP 모드 시작 중...", text_color="#ffb74d")
-        # 2초 후 자동 연결 확인
-        self.after(3000, self._check_cdp_status)
+        # CDP 전용 프로필 폴더 생성 (Default만 복사 → 캐시 제외로 경량)
+        try:
+            if not os.path.exists(cdp_profile):
+                os.makedirs(cdp_profile, exist_ok=True)
+            dst_default = os.path.join(cdp_profile, "Default")
+            src_default = os.path.join(src_profile, "Default")
+            if os.path.exists(src_default) and not os.path.exists(dst_default):
+                shutil.copytree(
+                    src_default, dst_default,
+                    ignore=shutil.ignore_patterns(
+                        "*.log", "*.tmp", "Cache", "Code Cache", "GPUCache",
+                        "Media Cache", "ShaderCache", "Service Worker", "CacheStorage",
+                        "blob_storage", "databases", "IndexedDB",
+                    )
+                )
+        except Exception:
+            pass  # 복사 실패 시 빈 프로필로 계속 (로그인만 다시 하면 됨)
 
-    def _launch_edge_cdp(self):
-        """Edge를 --remote-debugging-port=9223 플래그로 실행."""
-        import subprocess
-        edge_paths = [
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        ]
-        exe = None
-        for p in edge_paths:
-            if os.path.exists(p):
-                exe = p
-                break
-        if not exe:
-            messagebox.showwarning("Edge 경로 오류", "Edge 실행 파일을 찾을 수 없습니다.")
+        lnk_path = os.path.join(DESKTOP, sc_name)
+        args_str = (
+            f"--remote-debugging-port={port} "
+            f'--user-data-dir="{cdp_profile}" '
+            f"--no-first-run --no-default-browser-check"
+        )
+
+        # pywin32로 .lnk 생성 시도
+        try:
+            import win32com.client
+            shell = win32com.client.Dispatch("WScript.Shell")
+            sc = shell.CreateShortCut(lnk_path)
+            sc.Targetpath       = exe
+            sc.Arguments        = args_str
+            sc.WorkingDirectory = os.path.dirname(exe)
+            sc.IconLocation     = exe + ",0"
+            sc.Description      = f"{label} CDP 모드 (포트 {port}) — RPA DOM 수집 전용"
+            sc.save()
+            created_file = sc_name
+
+        except ImportError:
+            # pywin32 없으면 .bat Fallback
+            bat_name = sc_name.replace(".lnk", ".bat")
+            bat_path = os.path.join(DESKTOP, bat_name)
+            with open(bat_path, "w", encoding="utf-8") as fh:
+                fh.write("@echo off\n")
+                fh.write(f'start "" "{exe}" {args_str}\n')
+            lnk_path = bat_path
+            created_file = bat_name
+
+        except Exception as ex:
+            messagebox.showerror("생성 실패", f"바로가기 생성 오류:\n{ex}")
             return
 
-        url = self.ent_target_url.get().strip() or "about:blank"
-        subprocess.Popen([
-            exe,
-            "--remote-debugging-port=9223",
-            "--no-first-run",
-            url
-        ])
-        self.lbl_cdp_status.configure(text="● Edge CDP 모드 시작 중...", text_color="#ffb74d")
-        self.after(3000, self._check_cdp_status)
+        msg = (
+            f"바탕화면에 [{created_file}]가 생성됐습니다.\n\n"
+            f"[사용 방법]\n"
+            f"1. 현재 열린 {label} 창을 모두 닫으십시오\n"
+            f"2. 바탕화면의 [{created_file}]로 {label} 시작\n"
+            f"3. 사이트 로그인 후 RPA 도구에서 [연결 확인] 클릭\n"
+            f"4. 초록 표시 확인 후 DOM 수집 — <select> 드롭다운 포함 완벽 수집"
+        )
+        messagebox.showinfo("바로가기 생성 완료", msg)
 
     def _on_harvest_success(self, res: Dict[str, Any]):
         self.btn_harvest_dom.configure(text="DOM 수집", state="normal")
