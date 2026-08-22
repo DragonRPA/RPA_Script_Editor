@@ -59,12 +59,12 @@ class UBUSApp(ctk.CTk):
         self.tabview = ctk.CTkTabview(self, corner_radius=6)
         self.tabview.pack(fill="both", expand=True, padx=12, pady=12)
 
-        self.tab_vision   = self.tabview.add("🤖 AI 비전 & DOM 분석기")
-        self.tab_run      = self.tabview.add("🚀 작업 실행 대시보드")
-        self.tab_script   = self.tabview.add("🐍 RPA 스크립트 에디터 (스니펫 지원)")
-        self.tab_desktop  = self.tabview.add("🖥️ 윈도우 앱 자동화 (Desktop)")
-        self.tab_scenario = self.tabview.add("🧩 JSON 시나리오 뷰어")
-        self.tab_test     = self.tabview.add("📄 PDF 추출 테스트")
+        self.tab_vision   = self.tabview.add("AI 비전 코드 생성")
+        self.tab_run      = self.tabview.add("작업 대시보드")
+        self.tab_script   = self.tabview.add("스크립트 에디터")
+        self.tab_desktop  = self.tabview.add("윈도우 앱 자동화")
+        self.tab_scenario = self.tabview.add("시나리오 뷰어")
+        self.tab_test     = self.tabview.add("PDF 추출 테스트")
 
         self._build_vision_tab()
         self._build_run_tab()
@@ -74,12 +74,12 @@ class UBUSApp(ctk.CTk):
         self._build_test_tab()
 
     # -------------------------------------------------------------------------
-    # 탭 0: AI 비전 & DOM 분석기
+    # 탭 0: AI 비전 코드 생성
     # -------------------------------------------------------------------------
     def _build_vision_tab(self):
         def _switch_tab(tab_name):
             if tab_name == "script":
-                self.tabview.set("🐍 RPA 스크립트 에디터 (스니펫 지원)")
+                self.tabview.set("스크립트 에디터")
 
         self.vision_frame = AIVisionFrame(
             self.tab_vision,
@@ -88,6 +88,7 @@ class UBUSApp(ctk.CTk):
             on_switch_tab=_switch_tab
         )
         self.vision_frame.pack(fill="both", expand=True, padx=2, pady=2)
+
 
 
     # -------------------------------------------------------------------------

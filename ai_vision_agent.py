@@ -1,11 +1,11 @@
 """
-Universal RPA - Evidence-Based Hybrid Vision AI RPA Code & Selector Generator
-Google Gemini (클라우드 초고속) + Local Ollama (100% 무료 / 로컬 오프라인) 듀얼 엔진
-- 최상위 메인 탭(First-Class Tab)으로 승격 탑재 (새 모달 팝업 불필요)
-- 열려있는 윈도우 창(HWND) 선택 및 실시간 DOM/UI 컨트롤 수집
-- 유형별 조작 객체(입력창, 버튼, 그리드 등) 탭뷰 인스펙터
-- 3~4줄 컴팩트 자연어 요구사항 입력
-- 마지막 사용 설정(URL, AI 엔진, 모델) 영구 자동 기억
+Universal RPA - Vision AI Code Generator & DOM Inspector
+Google Gemini + Local Ollama
+- 최상위 메인 탭 내장
+- 윈도우 핸들(HWND) 및 URL 기반 DOM/UI 객체 수집
+- 유형별 조작 객체 탭뷰 인스펙터
+- 3~4줄 자연어 요구사항 입력
+- 설정값 자동 저장
 """
 
 import os
@@ -32,7 +32,7 @@ from dom_harvester import DOMHarvester
 
 
 class WindowEnumerator:
-    """Windows 활성 윈도우 핸들(HWND) 및 타이틀 안전 열거자"""
+    """Windows 활성 윈도우 핸들(HWND) 및 타이틀 열거자"""
 
     @classmethod
     def get_open_windows(cls) -> List[Tuple[int, str]]:
@@ -52,47 +52,34 @@ class WindowEnumerator:
                     user32.GetWindowTextW(hwnd, buff, length + 1)
                     title = buff.value.strip()
                     if title and title not in ['Program Manager', 'Default IME', 'MSCTFIME UI', 'Settings']:
-                        # 브라우저 및 주요 프로그램 우선 식별
-                        icon_tag = "🪟"
+                        tag = "창"
                         if any(kw in title.lower() for kw in ["chrome", "edge", "whale", "firefox", "brave"]):
-                            icon_tag = "🌐"
+                            tag = "웹"
                         elif any(kw in title.lower() for kw in ["excel", "hwp", "word", "erp", "더존", "sap"]):
-                            icon_tag = "📊"
-                        windows.append((hwnd, f"{icon_tag} {title}"))
+                            tag = "앱"
+                        windows.append((hwnd, f"[{tag}] {title}"))
             hwnd = user32.GetWindow(hwnd, GW_HWNDNEXT)
 
         return windows
 
 
 class GeminiVisionAgent:
-    """Google Gemini 멀티모달 비전 API 통신 매니저 (클라우드)"""
+    """Google Gemini 비전 API 통신 매니저"""
 
-    SYSTEM_INSTRUCTION = """당신은 세계 최고 권위의 엔터프라이즈 파이썬 RPA 및 웹/데스크톱 자동화 아키텍트입니다.
-사용자가 제공한 [화면 스크린샷 이미지], [대상 웹 URL/창], [실시간 수집된 UI 객체 카탈로그], [자연어 요구사항]을 정밀 분석하여, 실무 현장에서 100% 오류 없이 즉시 실행 가능한 완성형 파이썬 Playwright / Windows UIA 자동화 코드를 작성하십시오.
+    SYSTEM_INSTRUCTION = """당신은 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
+제공된 [화면 스크린샷], [대상 웹 URL/창], [UI 객체 카탈로그], [자연어 요구사항]을 분석하여 실행 가능한 파이썬 Playwright 코드를 작성하십시오.
 
-[필수 엔지니어링 표준 수칙]
-1. 🔍 증거 기반(Evidence-Based) 셀렉터 1:1 매핑:
-   - 함께 제공된 [실시간 수집된 UI 객체 카탈로그] 속의 실제 id, name, placeholder, class, label 힌트를 스크린샷 이미지와 1:1로 정확히 대조하십시오.
-   - 추측이나 환각(Hallucination)에 의한 가상 속성을 쓰지 말고, 카탈로그에 실제로 존재하는 고유 속성을 기반으로 셀렉터를 작성하십시오.
-
-2. 🖥️ 브라우저 기동 및 전체화면 (Playwright):
-   - 브라우저 실행 시 반드시 최대화 및 가상 뷰포트 해제 적용:
-     ```python
-     browser = playwright.chromium.launch(headless=False, args=["--start-maximized"])
-     context = browser.new_context(no_viewport=True)
-     page = context.new_page()
-     ```
-   - 대상 URL이 주어지면 `page.goto("{target_url}")` 및 `page.wait_for_load_state("domcontentloaded")`를 선행하십시오.
-
-3. 🎯 견고한 다중 Fallback 셀렉터 (Locators):
-   - 클래스명이 동적으로 변하거나 난독화되어 있어도 절대 깨지지 않도록 다중 후보군(Placeholder, Label 인접 인풋, Name, Role, ARIA, 텍스트)을 결합한 복합 셀렉터를 사용하십시오.
-   - 모든 요소 조작 전 `locator.wait_for(state="visible", timeout=5000)` 가시성 대기를 기본 적용하십시오.
-
-4. 📊 실시간 콘솔 로깅 및 예외 처리:
-   - 각 작업 단계마다 `print(">>> [단계 진행] ...")` 로그를 남기고, 적절한 `page.wait_for_timeout(...)`을 배치하여 안정성을 확보하십시오.
-
-5. 📦 출력 포맷:
-   - 다른 설명 없이 오직 완성된 파이썬 코드 블록(```python ... ```)을 최우선으로 출력하고, 코드 블록 하단에 사용된 핵심 셀렉터 분석 요약을 간결하게 첨부하십시오.
+[작성 규칙]
+1. 셀렉터 매핑: [UI 객체 카탈로그]에 존재하는 실제 id, name, placeholder, class 속성을 스크린샷과 대조하여 작성하십시오.
+2. 브라우저 기동:
+   ```python
+   browser = playwright.chromium.launch(headless=False, args=["--start-maximized"])
+   context = browser.new_context(no_viewport=True)
+   page = context.new_page()
+   ```
+3. 대상 URL이 있으면 `page.goto("{target_url}")` 및 `page.wait_for_load_state("domcontentloaded")`를 포함하십시오.
+4. 다중 Fallback 셀렉터를 적용하고, 조작 전 `locator.wait_for(state="visible", timeout=5000)`를 적용하십시오.
+5. 실행 가능한 파이썬 코드 블록(```python ... ```)을 최우선으로 출력하십시오.
 """
 
     @classmethod
@@ -115,11 +102,11 @@ class GeminiVisionAgent:
 
         prompt_text = ""
         if target_url:
-            prompt_text += f"### [대상 웹페이지 URL / 창]\n{target_url}\n\n"
+            prompt_text += f"[대상 URL / 창]\n{target_url}\n\n"
         if page_html:
-            prompt_text += f"### [실시간 수집된 실제 UI 조작 객체 카탈로그]\n{page_html[:4500]}\n\n"
-        prompt_text += f"### [자연어 자동화 요구사항]\n{user_prompt}\n\n"
-        prompt_text += "위 화면 스크린샷과 UI 객체 카탈로그, URL, 요구사항을 바탕으로 최적의 셀렉터와 파이썬 Playwright RPA 코드를 작성해 주십시오."
+            prompt_text += f"[UI 객체 목록]\n{page_html[:4500]}\n\n"
+        prompt_text += f"[요구사항]\n{user_prompt}\n\n"
+        prompt_text += "위 화면 스크린샷과 UI 객체 목록, 요구사항을 바탕으로 Playwright 코드를 작성하십시오."
 
         parts = [
             {
@@ -174,16 +161,16 @@ class GeminiVisionAgent:
 
 
 class OllamaVisionAgent:
-    """로컬 Ollama 멀티모달 비전 API 통신 매니저 (100% 무료 / 오프라인)"""
+    """Ollama 비전 API 통신 매니저"""
 
-    SYSTEM_INSTRUCTION = """당신은 세계 최고 수준의 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
-제공된 [화면 스크린샷 이미지], [대상 URL/창], [실시간 UI 조작 객체 카탈로그], [자연어 요구사항]을 분석하여, 가장 견고하고 정확한 Playwright (웹) 또는 Windows UIA 자동화 코드를 작성하십시오.
+    SYSTEM_INSTRUCTION = """당신은 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
+제공된 [화면 스크린샷], [대상 URL/창], [UI 객체 목록], [자연어 요구사항]을 분석하여 Playwright 자동화 코드를 작성하십시오.
 
 [작성 규칙]
-1. 제공된 [실시간 UI 조작 객체 카탈로그]의 id, name, placeholder, class 속성을 스크린샷과 대조하여 100% 정확한 실제 셀렉터를 추출하십시오.
+1. [UI 객체 목록]의 id, name, placeholder, class 속성을 스크린샷과 대조하여 셀렉터를 작성하십시오.
 2. Playwright 브라우저 기동 시 `browser = playwright.chromium.launch(headless=False, args=["--start-maximized"])`, `context = browser.new_context(no_viewport=True)`를 적용하십시오.
 3. 대상 URL이 있으면 `page.goto("{target_url}")` 코드를 최상단에 작성하십시오.
-4. 반드시 실행 가능한 완성된 파이썬 코드를 ```python ... ``` 블록으로 감싸서 출력하십시오."""
+4. 실행 가능한 코드를 ```python ... ``` 블록으로 감싸서 출력하십시오."""
 
     @classmethod
     def list_installed_models(cls, ollama_url: str = "http://localhost:11434") -> List[str]:
@@ -213,11 +200,11 @@ class OllamaVisionAgent:
 
         prompt_body = f"{cls.SYSTEM_INSTRUCTION}\n\n"
         if target_url:
-            prompt_body += f"[대상 웹페이지 URL / 창]\n{target_url}\n\n"
+            prompt_body += f"[대상 URL / 창]\n{target_url}\n\n"
         if page_html:
-            prompt_body += f"[실시간 수집된 실제 UI 조작 객체 카탈로그]\n{page_html[:4500]}\n\n"
-        prompt_body += f"[사용자 자연어 요구사항]\n{user_prompt}\n\n"
-        prompt_body += "위 화면 스크린샷과 UI 객체 카탈로그에서 타겟 요소를 찾아 최적의 Playwright 셀렉터와 파이썬 실행 코드를 작성해 주십시오."
+            prompt_body += f"[UI 객체 목록]\n{page_html[:4500]}\n\n"
+        prompt_body += f"[요구사항]\n{user_prompt}\n\n"
+        prompt_body += "위 화면 스크린샷과 UI 객체 목록에서 타겟 요소를 찾아 Playwright 코드를 작성하십시오."
 
         url = f"{ollama_url.rstrip('/')}/api/generate"
         payload = {
@@ -251,11 +238,9 @@ class OllamaVisionAgent:
 
 class AIVisionFrame(ctk.CTkFrame):
     """
-    메인 스튜디오 탭에 직접 내장되는 AI 비전 & DOM 분석기 프레임
-    - 모달 팝업 없이 100% 통합 탭 뷰로 구동
-    - 열려있는 윈도우 창 선택 및 실시간 DOM/UI 카탈로그 수집
-    - 유형별 탭뷰 인스펙터
-    - 코드 생성 ➔ 스크립트 에디터 / 봇 에디터 탭으로 원클릭 전송
+    AI 비전 코드 생성 및 DOM 분석기 프레임
+    - 건조한 명사/동사 UI 표준
+    - 최소 폰트 크기 11pt 이상
     """
 
     _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recorder_config.json")
@@ -280,13 +265,13 @@ class AIVisionFrame(ctk.CTkFrame):
         self._refresh_window_list()
 
     def _build_ui(self):
-        # 1. 상단 AI 엔진 선택 및 설정 바
+        # 1. 상단 설정 바
         top_ctrl = ctk.CTkFrame(self, corner_radius=6)
         top_ctrl.pack(fill="x", padx=6, pady=(4, 6))
 
-        ctk.CTkLabel(top_ctrl, text="AI 엔진:", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(10, 4), pady=8)
+        ctk.CTkLabel(top_ctrl, text="AI 엔진", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(10, 6), pady=8)
         self.seg_engine = ctk.CTkSegmentedButton(
-            top_ctrl, values=["☁️ Google Gemini (초고속)", "🦙 Local Ollama (100% 무료)"],
+            top_ctrl, values=["Google Gemini", "Local Ollama"],
             font=ctk.CTkFont(size=11, weight="bold"),
             command=self._on_engine_changed
         )
@@ -295,47 +280,47 @@ class AIVisionFrame(ctk.CTkFrame):
         self.engine_conf_frame = ctk.CTkFrame(top_ctrl, fg_color="transparent")
         self.engine_conf_frame.pack(side="left", fill="x", expand=True, padx=4)
 
-        # [A] Gemini 설정 위젯들
+        # [A] Gemini 설정
         self.f_gemini = ctk.CTkFrame(self.engine_conf_frame, fg_color="transparent")
-        ctk.CTkLabel(self.f_gemini, text="Key:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(self.f_gemini, text="API 키", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
         self.ent_api_key = ctk.CTkEntry(self.f_gemini, height=28, width=200, placeholder_text="Gemini API Key", show="*")
         self.ent_api_key.pack(side="left", padx=(0, 4))
         self.ent_api_key.bind("<FocusOut>", lambda e: self._save_all_configs())
 
-        btn_toggle_key = ctk.CTkButton(self.f_gemini, text="👁", width=28, height=28, fg_color="#444444", command=self._toggle_key_visibility)
+        btn_toggle_key = ctk.CTkButton(self.f_gemini, text="보기", width=40, height=28, font=ctk.CTkFont(size=11), fg_color="#444444", command=self._toggle_key_visibility)
         btn_toggle_key.pack(side="left", padx=(0, 4))
 
-        btn_save_key = ctk.CTkButton(self.f_gemini, text="저장", width=50, height=28, fg_color="#2e7d32", command=self._save_all_configs)
+        btn_save_key = ctk.CTkButton(self.f_gemini, text="저장", width=50, height=28, font=ctk.CTkFont(size=11), fg_color="#2e7d32", command=self._save_all_configs)
         btn_save_key.pack(side="left", padx=(0, 8))
 
-        ctk.CTkLabel(self.f_gemini, text="모델:", font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(self.f_gemini, text="모델", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
         self.cbo_gemini_model = ctk.CTkComboBox(
-            self.f_gemini, values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"], width=145, height=28,
+            self.f_gemini, values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"], width=145, height=28, font=ctk.CTkFont(size=11),
             command=lambda _: self._save_all_configs()
         )
         self.cbo_gemini_model.pack(side="left")
         self.cbo_gemini_model.set("gemini-2.5-flash")
 
-        # [B] Ollama 설정 위젯들
+        # [B] Ollama 설정
         self.f_ollama = ctk.CTkFrame(self.engine_conf_frame, fg_color="transparent")
-        ctk.CTkLabel(self.f_ollama, text="URL:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
-        self.ent_ollama_url = ctk.CTkEntry(self.f_ollama, height=28, width=160)
+        ctk.CTkLabel(self.f_ollama, text="URL", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
+        self.ent_ollama_url = ctk.CTkEntry(self.f_ollama, height=28, width=160, font=ctk.CTkFont(size=11))
         self.ent_ollama_url.pack(side="left", padx=(0, 4))
         self.ent_ollama_url.insert(0, "http://localhost:11434")
         self.ent_ollama_url.bind("<FocusOut>", lambda e: self._save_all_configs())
 
-        btn_refresh_ollama = ctk.CTkButton(self.f_ollama, text="🔄 모델 조회", width=80, height=28, fg_color="#1f6aa5", command=self._refresh_ollama_models)
+        btn_refresh_ollama = ctk.CTkButton(self.f_ollama, text="모델 조회", width=75, height=28, font=ctk.CTkFont(size=11), fg_color="#1f6aa5", command=self._refresh_ollama_models)
         btn_refresh_ollama.pack(side="left", padx=(0, 8))
 
-        ctk.CTkLabel(self.f_ollama, text="비전 모델:", font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(self.f_ollama, text="모델", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
         self.cbo_ollama_model = ctk.CTkComboBox(
-            self.f_ollama, values=["qwen3-vl:4b", "gemma3:12b", "llava", "qwen2.5:7b"], width=145, height=28,
+            self.f_ollama, values=["qwen3-vl:4b", "gemma3:12b", "llava", "qwen2.5:7b"], width=145, height=28, font=ctk.CTkFont(size=11),
             command=lambda _: self._save_all_configs()
         )
         self.cbo_ollama_model.pack(side="left")
         self.cbo_ollama_model.set("qwen3-vl:4b")
 
-        # 2. 본문 2분할 (좌: 3대 입력 칸 + 유형별 DOM 카탈로그 / 우: AI 생성 코드 뷰어)
+        # 2. 본문 2분할 (좌: 입력 및 카탈로그 / 우: 생성 코드)
         body = ctk.CTkFrame(self, corner_radius=6)
         body.pack(fill="both", expand=True, padx=6, pady=2)
         body.grid_columnconfigure(0, weight=1, minsize=520)
@@ -343,35 +328,35 @@ class AIVisionFrame(ctk.CTkFrame):
         body.grid_rowconfigure(0, weight=1)
 
         # ---------------------------------------------------------------------
-        # 좌측 패널: [1] 이미지 -> [2] 윈도우/URL 및 DOM 탭뷰 -> [3] 콤팩트 자연어
+        # 좌측 패널
         # ---------------------------------------------------------------------
         left_f = ctk.CTkFrame(body, corner_radius=6)
         left_f.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
 
-        # [섹션 1] 이미지 지정 칸
+        # [섹션 1] 타겟 이미지
         s1_head = ctk.CTkFrame(left_f, fg_color="transparent")
         s1_head.pack(fill="x", padx=8, pady=(4, 2))
-        ctk.CTkLabel(s1_head, text="📸 [1/3] 타겟 화면 이미지 지정", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        ctk.CTkLabel(s1_head, text="타겟 화면 이미지", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
 
         cap_bar = ctk.CTkFrame(left_f, fg_color="transparent")
         cap_bar.pack(fill="x", padx=8, pady=(0, 2))
 
         btn_paste_clip = ctk.CTkButton(
-            cap_bar, text="📋 붙여넣기 (Ctrl+V)", width=150, height=26,
+            cap_bar, text="붙여넣기", width=110, height=28,
             fg_color="#00695c", hover_color="#004d40", font=ctk.CTkFont(size=11, weight="bold"),
             command=self._paste_from_clipboard
         )
         btn_paste_clip.pack(side="left", padx=(0, 4))
 
         btn_cap_screen = ctk.CTkButton(
-            cap_bar, text="📸 즉시 캡처", width=90, height=26,
+            cap_bar, text="화면 캡처", width=90, height=28,
             fg_color="#1f6aa5", hover_color="#144d75", font=ctk.CTkFont(size=11),
             command=self._capture_screen_now
         )
         btn_cap_screen.pack(side="left", padx=2)
 
         btn_browse_img = ctk.CTkButton(
-            cap_bar, text="📁 파일 선택", width=85, height=26,
+            cap_bar, text="파일 선택", width=85, height=28,
             fg_color="#444444", hover_color="#333333", font=ctk.CTkFont(size=11),
             command=self._browse_image_file
         )
@@ -380,52 +365,51 @@ class AIVisionFrame(ctk.CTkFrame):
         self.frame_preview = ctk.CTkFrame(left_f, height=75, fg_color="#181818", corner_radius=6)
         self.frame_preview.pack(fill="x", padx=8, pady=2)
         self.lbl_img_preview = ctk.CTkLabel(
-            self.frame_preview, text="[클립보드 복사(Win+Shift+S) 후 Ctrl+V 또는 캡처/파일 선택]",
+            self.frame_preview, text="이미지 미리보기 영역",
             font=ctk.CTkFont(size=11), text_color="#777777"
         )
         self.lbl_img_preview.pack(expand=True, pady=10)
 
-        # [섹션 2] 열려있는 윈도우 창 선택 & 대상 URL & DOM 카탈로그
+        # [섹션 2] 대상 창 / URL / DOM 카탈로그
         s2_head = ctk.CTkFrame(left_f, fg_color="transparent")
         s2_head.pack(fill="x", padx=8, pady=(4, 2))
-        ctk.CTkLabel(s2_head, text="🪟 [2/3] 열려있는 창 선택 & 실시간 DOM 수집", font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6").pack(side="left")
+        ctk.CTkLabel(s2_head, text="대상 창 및 URL", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
 
-        # 윈도우 창 선택 드롭다운 행
+        # 윈도우 창 선택 드롭다운
         win_bar = ctk.CTkFrame(left_f, fg_color="transparent")
         win_bar.pack(fill="x", padx=8, pady=(0, 2))
 
-        ctk.CTkLabel(win_bar, text="대상 창:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
-        self.cbo_windows = ctk.CTkComboBox(win_bar, values=["(열려있는 창을 검색 중...)"], height=28)
+        ctk.CTkLabel(win_bar, text="대상 창", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
+        self.cbo_windows = ctk.CTkComboBox(win_bar, values=["(창 검색 중)"], height=28, font=ctk.CTkFont(size=11))
         self.cbo_windows.pack(side="left", fill="x", expand=True, padx=(0, 4))
 
         btn_refresh_wins = ctk.CTkButton(
-            win_bar, text="🔄 창 갱신", width=75, height=28, fg_color="#333333",
+            win_bar, text="창 갱신", width=70, height=28, font=ctk.CTkFont(size=11), fg_color="#333333",
             command=self._refresh_window_list
         )
         btn_refresh_wins.pack(side="right")
 
-        # URL 입력 및 수집 트리거 행
+        # URL 입력 및 수집 버튼
         url_bar = ctk.CTkFrame(left_f, fg_color="transparent")
         url_bar.pack(fill="x", padx=8, pady=(2, 2))
 
+        ctk.CTkLabel(url_bar, text="대상 URL", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
         self.ent_target_url = ctk.CTkEntry(
-            url_bar, height=28, placeholder_text="예: http://175.119.156.105:3000/contract/list"
+            url_bar, height=28, font=ctk.CTkFont(size=11), placeholder_text="예: http://175.119.156.105:3000/contract/list"
         )
         self.ent_target_url.pack(side="left", fill="x", expand=True, padx=(0, 4))
         self.ent_target_url.bind("<FocusOut>", lambda e: self._save_all_configs())
 
         self.btn_harvest_dom = ctk.CTkButton(
-            url_bar, text="🌐 실시간 DOM 수집 🔍", width=145, height=28,
+            url_bar, text="DOM 수집", width=100, height=28,
             fg_color="#1f6aa5", hover_color="#144d75", font=ctk.CTkFont(size=11, weight="bold"),
             command=self._start_harvest_dom
         )
         self.btn_harvest_dom.pack(side="right")
 
-        # ---------------------------------------------------------------------
-        # 유형별 조작 가능 객체 탭뷰 (Tabview)
-        # ---------------------------------------------------------------------
+        # 유형별 조작 객체 탭뷰
         self.lbl_dom_status = ctk.CTkLabel(
-            left_f, text="📋 [페이지 내 전체 조작 가능 객체] (창 선택 또는 URL 입력 후 'DOM 수집' 클릭)",
+            left_f, text="조작 객체 목록",
             font=ctk.CTkFont(size=11, weight="bold"), text_color="#aaaaaa", anchor="w"
         )
         self.lbl_dom_status.pack(fill="x", padx=8, pady=(2, 0))
@@ -433,12 +417,12 @@ class AIVisionFrame(ctk.CTkFrame):
         self.tabview_dom = ctk.CTkTabview(left_f, height=180)
         self.tabview_dom.pack(fill="both", expand=True, padx=8, pady=(1, 2))
 
-        self.tab_inputs = self.tabview_dom.add("📝 입력창 (0)")
-        self.tab_buttons = self.tabview_dom.add("🔘 버튼 (0)")
-        self.tab_selects = self.tabview_dom.add("🔽 드롭다운 (0)")
-        self.tab_checks = self.tabview_dom.add("☑️ 체크/라디오 (0)")
-        self.tab_grids = self.tabview_dom.add("📊 그리드 (0)")
-        self.tab_links = self.tabview_dom.add("📑 링크/탭 (0)")
+        self.tab_inputs = self.tabview_dom.add("입력창 (0)")
+        self.tab_buttons = self.tabview_dom.add("버튼 (0)")
+        self.tab_selects = self.tabview_dom.add("드롭다운 (0)")
+        self.tab_checks = self.tabview_dom.add("체크/라디오 (0)")
+        self.tab_grids = self.tabview_dom.add("그리드 (0)")
+        self.tab_links = self.tabview_dom.add("링크 (0)")
 
         self.scroll_frames = {
             "inputs": ctk.CTkScrollableFrame(self.tab_inputs, fg_color="transparent"),
@@ -451,52 +435,50 @@ class AIVisionFrame(ctk.CTkFrame):
         for sf in self.scroll_frames.values():
             sf.pack(fill="both", expand=True)
 
-        # ---------------------------------------------------------------------
-        # 선택된 객체의 실시간 추천 셀렉터 표시 바
-        # ---------------------------------------------------------------------
+        # 선택 셀렉터 표시 바
         sel_box = ctk.CTkFrame(left_f, corner_radius=6, fg_color="#181818")
         sel_box.pack(fill="x", padx=8, pady=(2, 4))
 
-        ctk.CTkLabel(sel_box, text="🎯 선택된 셀렉터:", font=ctk.CTkFont(size=11, weight="bold"), text_color="#64b5f6").pack(side="left", padx=(8, 4), pady=4)
-        self.lbl_selected_sel = ctk.CTkEntry(sel_box, height=26, font=ctk.CTkFont(family="Consolas", size=11), fg_color="#262626")
+        ctk.CTkLabel(sel_box, text="선택 셀렉터", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(8, 4), pady=4)
+        self.lbl_selected_sel = ctk.CTkEntry(sel_box, height=28, font=ctk.CTkFont(family="Consolas", size=11), fg_color="#262626")
         self.lbl_selected_sel.pack(side="left", fill="x", expand=True, padx=(0, 4), pady=4)
-        self.lbl_selected_sel.insert(0, "(목록에서 원하는 요소를 클릭하면 셀렉터가 표시됩니다)")
+        self.lbl_selected_sel.insert(0, "")
 
-        btn_copy_sel = ctk.CTkButton(sel_box, text="복사", width=45, height=26, font=ctk.CTkFont(size=10), fg_color="#444444", command=self._copy_selected_selector)
+        btn_copy_sel = ctk.CTkButton(sel_box, text="복사", width=50, height=28, font=ctk.CTkFont(size=11), fg_color="#444444", command=self._copy_selected_selector)
         btn_copy_sel.pack(side="right", padx=(0, 6), pady=4)
 
-        btn_inject_prompt = ctk.CTkButton(sel_box, text="+ 요구사항에 추가", width=105, height=26, font=ctk.CTkFont(size=10), fg_color="#00695c", command=self._inject_selected_into_prompt)
+        btn_inject_prompt = ctk.CTkButton(sel_box, text="요구사항 추가", width=95, height=28, font=ctk.CTkFont(size=11), fg_color="#00695c", command=self._inject_selected_into_prompt)
         btn_inject_prompt.pack(side="right", padx=(0, 4), pady=4)
 
-        # [섹션 3] 자연어 요구사항 입력 칸 (콤팩트 3~4줄 높이)
+        # [섹션 3] 요구사항 입력
         s3_head = ctk.CTkFrame(left_f, fg_color="transparent")
         s3_head.pack(fill="x", padx=8, pady=(2, 1))
-        ctk.CTkLabel(s3_head, text="✍️ [3/3] 자연어 자동화 요구사항 (3~4줄)", font=ctk.CTkFont(size=11, weight="bold"), text_color="#81c784").pack(side="left")
+        ctk.CTkLabel(s3_head, text="자동화 요구사항", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left")
 
         self.txt_prompt = ctk.CTkTextbox(left_f, height=58, font=ctk.CTkFont(size=11))
         self.txt_prompt.pack(fill="x", padx=8, pady=(0, 4))
         self.txt_prompt.insert(
             "1.0",
-            "아이디 입력창에 'admin', 비밀번호에 '1234'를 입력하고 로그인 버튼을 클릭해줘."
+            "아이디 입력창에 'admin', 비밀번호에 '1234'를 입력하고 로그인 버튼을 클릭."
         )
 
         # 실행 버튼
         self.btn_generate = ctk.CTkButton(
-            left_f, text="⚡ 증거 기반 AI 코드 생성 (Generate RPA Code)", height=36,
-            fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(size=13, weight="bold"),
+            left_f, text="코드 생성", height=36,
+            fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(size=12, weight="bold"),
             command=self._start_ai_generation
         )
         self.btn_generate.pack(fill="x", padx=8, pady=(2, 6))
 
         # ---------------------------------------------------------------------
-        # 우측 패널: AI 생성 코드 & 상호작용 액션 툴바
+        # 우측 패널: 생성 코드 뷰어
         # ---------------------------------------------------------------------
         right_f = ctk.CTkFrame(body, corner_radius=6)
         right_f.grid(row=0, column=1, padx=(0, 6), pady=6, sticky="nsew")
 
         r_head = ctk.CTkFrame(right_f, fg_color="transparent")
         r_head.pack(fill="x", padx=8, pady=(8, 4))
-        ctk.CTkLabel(r_head, text="💻 AI가 생성한 완성형 RPA 코드", font=ctk.CTkFont(size=12, weight="bold"), text_color="#81c784").pack(side="left")
+        ctk.CTkLabel(r_head, text="생성 코드", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
 
         self.txt_result_code = ctk.CTkTextbox(
             right_f, font=ctk.CTkFont(family="Consolas", size=12), fg_color="#181818"
@@ -507,22 +489,22 @@ class AIVisionFrame(ctk.CTkFrame):
         b_bar.pack(fill="x", padx=8, pady=(4, 8))
 
         btn_insert = ctk.CTkButton(
-            b_bar, text="📋 스크립트 에디터로 전송 ➔", width=180, height=34,
-            fg_color="#2e7d32", hover_color="#1b5e20", font=ctk.CTkFont(weight="bold"),
+            b_bar, text="스크립트 에디터 전송", width=160, height=34,
+            fg_color="#2e7d32", hover_color="#1b5e20", font=ctk.CTkFont(size=11, weight="bold"),
             command=self._do_insert_editor
         )
         btn_insert.pack(side="left", padx=(0, 4))
 
         btn_add_bot = ctk.CTkButton(
-            b_bar, text="🤖 봇 에디터로 모듈 등록 ➔", width=180, height=34,
-            fg_color="#6a1b9a", hover_color="#4a148c", font=ctk.CTkFont(weight="bold"),
+            b_bar, text="봇 모듈 등록", width=140, height=34,
+            fg_color="#6a1b9a", hover_color="#4a148c", font=ctk.CTkFont(size=11, weight="bold"),
             command=self._do_add_bot
         )
         btn_add_bot.pack(side="left", padx=4)
 
         btn_copy = ctk.CTkButton(
-            b_bar, text="클립보드 복사", width=100, height=34,
-            fg_color="#444444", hover_color="#333333", command=self._copy_result
+            b_bar, text="클립보드 복사", width=110, height=34,
+            fg_color="#444444", hover_color="#333333", font=ctk.CTkFont(size=11), command=self._copy_result
         )
         btn_copy.pack(side="right")
 
@@ -535,18 +517,17 @@ class AIVisionFrame(ctk.CTkFrame):
             self.open_windows_list = wins
             titles = [t for _, t in wins]
             if not titles:
-                titles = ["(열려있는 활성 창이 없습니다)"]
+                titles = ["(열려있는 활성 창 없음)"]
             self.cbo_windows.configure(values=titles)
             if titles:
-                # 브라우저 창 우선 선택
                 default_choice = titles[0]
                 for t in titles:
-                    if "🌐" in t:
+                    if "[웹]" in t:
                         default_choice = t
                         break
                 self.cbo_windows.set(default_choice)
         except Exception as e:
-            self.cbo_windows.configure(values=[f"(창 목록 조회 오류: {e})"])
+            self.cbo_windows.configure(values=[f"(오류: {e})"])
 
     # =========================================================================
     # 엔진 변경 및 모델 목록 갱신
@@ -572,19 +553,19 @@ class AIVisionFrame(ctk.CTkFrame):
                 self.cbo_ollama_model.set(models[0])
 
     # =========================================================================
-    # [실시간 DOM 수집] 활성 윈도우 / URL 수집 트리거
+    # [실시간 DOM 수집]
     # =========================================================================
     def _start_harvest_dom(self):
         url = self.ent_target_url.get().strip()
         selected_win_title = self.cbo_windows.get()
 
         if not url and not selected_win_title:
-            messagebox.showwarning("입력 확인", "대상 웹 URL을 입력하거나 대상 창을 선택해 주십시오.")
+            messagebox.showwarning("입력 확인", "대상 웹 URL을 입력하거나 대상 창을 선택하십시오.")
             return
 
         self._save_all_configs()
-        self.btn_harvest_dom.configure(text="⏳ DOM 수집 중...", state="disabled")
-        self.lbl_dom_status.configure(text="⏳ 브라우저 세션 탐색 및 조작 가능 객체 수집 중...", text_color="#ffb74d")
+        self.btn_harvest_dom.configure(text="수집 중...", state="disabled")
+        self.lbl_dom_status.configure(text="DOM 수집 중...", text_color="#ffb74d")
 
         def _worker():
             try:
@@ -596,15 +577,14 @@ class AIVisionFrame(ctk.CTkFrame):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_harvest_success(self, res: Dict[str, Any]):
-        self.btn_harvest_dom.configure(text="🌐 실시간 DOM 수집 🔍", state="normal")
+        self.btn_harvest_dom.configure(text="DOM 수집", state="normal")
         catalog = res.get("catalog", {})
         self.current_catalog = catalog
         total_count = res.get("count", 0)
         sec = res.get("elapsed_sec", 0)
-        engine = res.get("engine", "")
 
         self.lbl_dom_status.configure(
-            text=f"✅ 총 {total_count}개 조작 가능 객체 수집 완료 ({sec}초, {engine})",
+            text=f"조작 객체 목록 ({total_count}개 수집됨, {sec}초)",
             text_color="#81c784"
         )
 
@@ -613,34 +593,34 @@ class AIVisionFrame(ctk.CTkFrame):
                 w.destroy()
 
         inputs = catalog.get("inputs", [])
-        self._set_tab_title(self.tab_inputs, f"📝 입력창 ({len(inputs)})")
+        self._set_tab_title(self.tab_inputs, f"입력창 ({len(inputs)})")
         for itm in inputs:
-            self._render_element_card(self.scroll_frames["inputs"], itm, icon="📝", default_action="입력")
+            self._render_element_card(self.scroll_frames["inputs"], itm, icon="[입력]")
 
         buttons = catalog.get("buttons", [])
-        self._set_tab_title(self.tab_buttons, f"🔘 버튼 ({len(buttons)})")
+        self._set_tab_title(self.tab_buttons, f"버튼 ({len(buttons)})")
         for itm in buttons:
-            self._render_element_card(self.scroll_frames["buttons"], itm, icon="🔘", default_action="클릭")
+            self._render_element_card(self.scroll_frames["buttons"], itm, icon="[버튼]")
 
         selects = catalog.get("selects", [])
-        self._set_tab_title(self.tab_selects, f"🔽 드롭다운 ({len(selects)})")
+        self._set_tab_title(self.tab_selects, f"드롭다운 ({len(selects)})")
         for itm in selects:
-            self._render_element_card(self.scroll_frames["selects"], itm, icon="🔽", default_action="선택")
+            self._render_element_card(self.scroll_frames["selects"], itm, icon="[선택]")
 
         checks = catalog.get("checks_radios", [])
-        self._set_tab_title(self.tab_checks, f"☑️ 체크/라디오 ({len(checks)})")
+        self._set_tab_title(self.tab_checks, f"체크/라디오 ({len(checks)})")
         for itm in checks:
-            self._render_element_card(self.scroll_frames["checks_radios"], itm, icon="☑️", default_action="체크")
+            self._render_element_card(self.scroll_frames["checks_radios"], itm, icon="[체크]")
 
         grids = catalog.get("grids", [])
-        self._set_tab_title(self.tab_grids, f"📊 그리드 ({len(grids)})")
+        self._set_tab_title(self.tab_grids, f"그리드 ({len(grids)})")
         for itm in grids:
-            self._render_element_card(self.scroll_frames["grids"], itm, icon="📊", default_action="더블클릭")
+            self._render_element_card(self.scroll_frames["grids"], itm, icon="[그리드]")
 
         links = catalog.get("links", [])
-        self._set_tab_title(self.tab_links, f"📑 링크/탭 ({len(links)})")
+        self._set_tab_title(self.tab_links, f"링크 ({len(links)})")
         for itm in links:
-            self._render_element_card(self.scroll_frames["links"], itm, icon="📑", default_action="클릭")
+            self._render_element_card(self.scroll_frames["links"], itm, icon="[링크]")
 
     def _set_tab_title(self, tab, new_title):
         try:
@@ -651,7 +631,7 @@ class AIVisionFrame(ctk.CTkFrame):
         except Exception:
             pass
 
-    def _render_element_card(self, parent_frame, itm: Dict[str, Any], icon: str = "🔹", default_action: str = "클릭"):
+    def _render_element_card(self, parent_frame, itm: Dict[str, Any], icon: str = ""):
         name = itm.get("label") or itm.get("text") or itm.get("type") or "요소"
         sel = itm.get("selector") or ""
         code = itm.get("playwrightCode") or ""
@@ -667,7 +647,7 @@ class AIVisionFrame(ctk.CTkFrame):
         ).pack(side="left", fill="x", expand=True)
 
         btn_pick = ctk.CTkButton(
-            top_r, text="선택", width=45, height=22, font=ctk.CTkFont(size=10, weight="bold"),
+            top_r, text="선택", width=50, height=24, font=ctk.CTkFont(size=11, weight="bold"),
             fg_color="#1f6aa5", hover_color="#144d75",
             command=lambda: self._select_element(name, sel, code)
         )
@@ -677,7 +657,7 @@ class AIVisionFrame(ctk.CTkFrame):
         bot_r.pack(fill="x", padx=6, pady=(0, 4))
 
         ctk.CTkLabel(
-            bot_r, text=f"셀렉터: {sel}", font=ctk.CTkFont(family="Consolas", size=10), text_color="#64b5f6", anchor="w"
+            bot_r, text=f"셀렉터: {sel}", font=ctk.CTkFont(family="Consolas", size=11), text_color="#64b5f6", anchor="w"
         ).pack(side="left", fill="x", expand=True)
 
     def _select_element(self, name: str, sel: str, code: str):
@@ -686,23 +666,23 @@ class AIVisionFrame(ctk.CTkFrame):
 
     def _copy_selected_selector(self):
         sel_text = self.lbl_selected_sel.get().strip()
-        if sel_text and not sel_text.startswith("("):
+        if sel_text:
             self.clipboard_clear()
             self.clipboard_append(sel_text)
-            messagebox.showinfo("복사 완료", "클립보드에 셀렉터 코드가 복사되었습니다!")
+            messagebox.showinfo("복사 완료", "셀렉터가 복사되었습니다.")
 
     def _inject_selected_into_prompt(self):
         sel_text = self.lbl_selected_sel.get().strip()
-        if sel_text and not sel_text.startswith("("):
+        if sel_text:
             self.txt_prompt.insert("end", f"\n- {sel_text}")
 
     def _on_harvest_error(self, err_msg: str):
-        self.btn_harvest_dom.configure(text="🌐 실시간 DOM 수집 🔍", state="normal")
-        self.lbl_dom_status.configure(text=f"❌ DOM 수집 실패: {err_msg[:45]}", text_color="#e57373")
-        messagebox.showerror("DOM 수집 오류", f"대상 URL DOM 수집 실패:\n{err_msg}")
+        self.btn_harvest_dom.configure(text="DOM 수집", state="normal")
+        self.lbl_dom_status.configure(text="DOM 수집 실패", text_color="#e57373")
+        messagebox.showerror("DOM 수집 오류", f"수집 실패:\n{err_msg}")
 
     # =========================================================================
-    # [섹션 1] 클립보드 붙여넣기, 화면 캡처, 이미지 로드
+    # [섹션 1] 이미지
     # =========================================================================
     def _paste_from_clipboard(self):
         try:
@@ -715,22 +695,21 @@ class AIVisionFrame(ctk.CTkFrame):
 
                 self.current_image_path = shot_path
                 self._display_preview_image(shot_path)
-                messagebox.showinfo("붙여넣기 성공", "📋 클립보드의 스크린샷 이미지가 성공적으로 로드되었습니다!")
+                messagebox.showinfo("붙여넣기", "스크린샷 이미지가 로드되었습니다.")
                 return
             elif isinstance(clip_data, list) and len(clip_data) > 0 and os.path.exists(clip_data[0]):
                 p = clip_data[0]
                 if p.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
                     self.current_image_path = p
                     self._display_preview_image(p)
-                    messagebox.showinfo("파일 로드 성공", f"📋 클립보드의 이미지 파일이 로드되었습니다:\n{p}")
+                    messagebox.showinfo("파일 로드", f"이미지 파일이 로드되었습니다:\n{p}")
                     return
 
-            messagebox.showwarning("붙여넣기 안내", "클립보드에 복사된 이미지가 없습니다.\n먼저 화면 캡처(Win+Shift+S)를 수행하신 후 붙여넣어 주십시오.")
+            messagebox.showwarning("안내", "클립보드에 이미지가 없습니다.")
         except Exception as e:
-            messagebox.showerror("오류", f"클립보드 이미지 처리 실패: {e}")
+            messagebox.showerror("오류", f"이미지 처리 실패: {e}")
 
     def _capture_screen_now(self):
-        # 스튜디오 창을 잠시 내리고 캡처
         if self.parent_app and hasattr(self.parent_app, "withdraw"):
             self.parent_app.withdraw()
         time.sleep(0.3)
@@ -750,7 +729,7 @@ class AIVisionFrame(ctk.CTkFrame):
             self.current_image_path = shot_path
             self._display_preview_image(shot_path)
         except Exception as e:
-            messagebox.showerror("캡처 오류", f"화면 캡처 실패: {e}")
+            messagebox.showerror("오류", f"캡처 실패: {e}")
         finally:
             if self.parent_app and hasattr(self.parent_app, "deiconify"):
                 self.parent_app.deiconify()
@@ -773,16 +752,16 @@ class AIVisionFrame(ctk.CTkFrame):
             self.lbl_img_preview.configure(text=f"미리보기 실패: {ex}")
 
     # =========================================================================
-    # AI 코드 생성 실행
+    # AI 코드 생성
     # =========================================================================
     def _start_ai_generation(self):
         if not self.current_image_path or not os.path.exists(self.current_image_path):
-            messagebox.showwarning("입력 확인", "[1단계: 타겟 화면 이미지]를 먼저 지정해 주십시오.\n(클립보드 붙여넣기, 즉시 캡처, 또는 파일 선택)")
+            messagebox.showwarning("입력 확인", "타겟 화면 이미지를 지정하십시오.")
             return
 
         prompt = self.txt_prompt.get("1.0", "end").strip()
         if not prompt:
-            messagebox.showwarning("입력 확인", "[3단계: 자연어 자동화 요구사항]을 입력해 주십시오.")
+            messagebox.showwarning("입력 확인", "자동화 요구사항을 입력하십시오.")
             return
 
         target_url = self.ent_target_url.get().strip() or self.cbo_windows.get()
@@ -794,12 +773,12 @@ class AIVisionFrame(ctk.CTkFrame):
         if "Gemini" in engine_choice:
             api_key = self.ent_api_key.get().strip()
             if not api_key:
-                messagebox.showwarning("입력 확인", "Google Gemini API Key를 먼저 입력해 주십시오.")
+                messagebox.showwarning("입력 확인", "Gemini API Key를 입력하십시오.")
                 return
             model = self.cbo_gemini_model.get()
-            self.btn_generate.configure(text="⏳ Gemini 증거 기반 분석 중... (약 1~2초)", state="disabled")
+            self.btn_generate.configure(text="코드 생성 중...", state="disabled")
             self.txt_result_code.delete("1.0", "end")
-            self.txt_result_code.insert("1.0", f"// 🤖 Google Gemini ({model})에 이미지와 URL, 수집된 UI 객체 카탈로그를 대조 분석 중입니다...\n")
+            self.txt_result_code.insert("1.0", f"# Google Gemini ({model}) 분석 중...\n")
 
             def _worker_gemini():
                 try:
@@ -820,9 +799,9 @@ class AIVisionFrame(ctk.CTkFrame):
         else:
             ollama_url = self.ent_ollama_url.get().strip() or "http://localhost:11434"
             model = self.cbo_ollama_model.get()
-            self.btn_generate.configure(text="⏳ Ollama 증거 기반 비전 추론 중... (약 3~6초)", state="disabled")
+            self.btn_generate.configure(text="추론 중...", state="disabled")
             self.txt_result_code.delete("1.0", "end")
-            self.txt_result_code.insert("1.0", f"// 🦙 Local Ollama ({model})에서 이미지와 수집된 UI 객체 카탈로그를 로컬 GPU로 추론 중입니다...\n// (100% 무료 / 사내 보안 유지 / 외부 유출 없음)\n")
+            self.txt_result_code.insert("1.0", f"# Local Ollama ({model}) 추론 중...\n")
 
             def _worker_ollama():
                 try:
@@ -841,45 +820,45 @@ class AIVisionFrame(ctk.CTkFrame):
             threading.Thread(target=_worker_ollama, daemon=True).start()
 
     def _on_generation_success(self, code: str, full_text: str, engine_name: str):
-        self.btn_generate.configure(text="⚡ 증거 기반 AI 코드 생성 (Generate RPA Code)", state="normal")
+        self.btn_generate.configure(text="코드 생성", state="normal")
         self.txt_result_code.delete("1.0", "end")
         self.txt_result_code.insert("1.0", code)
-        messagebox.showinfo("생성 완료", f"✅ {engine_name} 엔진이 수집된 UI 객체 카탈로그를 기반으로 100% 무결점 코드를 생성하였습니다!")
+        messagebox.showinfo("완료", "코드가 생성되었습니다.")
 
     def _on_generation_error(self, err_msg: str):
-        self.btn_generate.configure(text="⚡ 증거 기반 AI 코드 생성 (Generate RPA Code)", state="normal")
+        self.btn_generate.configure(text="코드 생성", state="normal")
         self.txt_result_code.delete("1.0", "end")
-        self.txt_result_code.insert("1.0", f"[오류 발생]\n{err_msg}")
-        messagebox.showerror("AI 생성 오류", f"코드 생성 실패:\n{err_msg}")
+        self.txt_result_code.insert("1.0", f"[오류]\n{err_msg}")
+        messagebox.showerror("오류", f"코드 생성 실패:\n{err_msg}")
 
     # =========================================================================
-    # 액션 버튼 핸들러 (스크립트 에디터 / 봇 에디터 탭으로 전송)
+    # 액션 핸들러
     # =========================================================================
     def _do_insert_editor(self):
         code = self.txt_result_code.get("1.0", "end").strip()
-        if not code or code.startswith("//") or code.startswith("[오류"):
-            messagebox.showwarning("안내", "전송할 유효한 생성 코드가 없습니다.")
+        if not code or code.startswith("#") or code.startswith("[오류"):
+            messagebox.showwarning("안내", "유효한 코드가 없습니다.")
             return
 
         if self.on_insert_code:
             self.on_insert_code(code)
             if self.on_switch_tab:
                 self.on_switch_tab("script")
-            messagebox.showinfo("전송 완료", "파이썬 스크립트 에디터 탭으로 코드가 전송되었습니다!")
+            messagebox.showinfo("전송 완료", "스크립트 에디터로 전송되었습니다.")
 
     def _do_add_bot(self):
         code = self.txt_result_code.get("1.0", "end").strip()
-        if not code or code.startswith("//") or code.startswith("[오류"):
-            messagebox.showwarning("안내", "추가할 유효한 생성 코드가 없습니다.")
+        if not code or code.startswith("#") or code.startswith("[오류"):
+            messagebox.showwarning("안내", "유효한 코드가 없습니다.")
             return
 
         engine_str = "Gemini" if "Gemini" in self.seg_engine.get() else self.cbo_ollama_model.get()
         prompt_first_line = self.txt_prompt.get("1.0", "end").strip().splitlines()[0][:20]
         mod_data = {
             "name": f"ai_mod_{int(time.time())}",
-            "title": f"AI 생성: {prompt_first_line}",
+            "title": f"{prompt_first_line}",
             "category": "웹조작",
-            "description": f"증거기반 Vision AI 생성 모듈 ({engine_str})",
+            "description": f"AI 생성 모듈 ({engine_str})",
             "code": code
         }
 
@@ -887,7 +866,7 @@ class AIVisionFrame(ctk.CTkFrame):
             self.on_add_to_bot(mod_data)
             if self.on_switch_tab:
                 self.on_switch_tab("bot")
-            messagebox.showinfo("모듈 등록 완료", "🤖 봇 에디터 탭에 새 모듈 카드가 등록되었습니다!")
+            messagebox.showinfo("등록 완료", "봇 에디터에 등록되었습니다.")
 
     def _copy_result(self):
         code = self.txt_result_code.get("1.0", "end").strip()
@@ -901,13 +880,13 @@ class AIVisionFrame(ctk.CTkFrame):
             self.ent_api_key.configure(show="*")
 
     # =========================================================================
-    # 설정 자동 영구 저장 및 복원
+    # 설정 자동 저장
     # =========================================================================
     def _load_saved_configs(self):
         k = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
         ollama_u = "http://localhost:11434"
         target_u = "http://175.119.156.105:3000/contract/list"
-        last_engine = "☁️ Google Gemini (초고속)"
+        last_engine = "Google Gemini"
         last_gemini_model = "gemini-2.5-flash"
         last_ollama_model = "qwen3-vl:4b"
 
@@ -937,9 +916,12 @@ class AIVisionFrame(ctk.CTkFrame):
             self.ent_target_url.delete(0, "end")
             self.ent_target_url.insert(0, target_u)
 
-        if last_engine:
-            self.seg_engine.set(last_engine)
-            self._on_engine_changed(last_engine)
+        if "Ollama" in last_engine:
+            self.seg_engine.set("Local Ollama")
+            self._on_engine_changed("Local Ollama")
+        else:
+            self.seg_engine.set("Google Gemini")
+            self._on_engine_changed("Google Gemini")
 
         if last_gemini_model in ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"]:
             self.cbo_gemini_model.set(last_gemini_model)
@@ -974,12 +956,10 @@ class AIVisionFrame(ctk.CTkFrame):
 
 
 class AIVisionModal(ctk.CTkToplevel):
-    """호환성을 위한 모달 래퍼 (기존 호출부 지원)"""
-
     def __init__(self, parent, on_insert_code: Optional[Callable[[str], None]] = None,
                  on_add_to_bot: Optional[Callable[[Dict[str, Any]], None]] = None):
         super().__init__(parent)
-        self.title("🤖 증거 기반 Vision AI 셀렉터 & RPA 코드 생성기")
+        self.title("AI 비전 코드 생성")
         self.geometry("1120x920")
         self.minsize(980, 740)
         self.attributes("-topmost", True)
