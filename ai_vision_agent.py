@@ -384,7 +384,7 @@ class AIVisionFrame(ctk.CTkFrame):
         self.cbo_ollama_model.pack(side="left")
 
         # --- 수직 구분선 ---
-        sep = ctk.CTkFrame(top_ctrl, width=2, fg_color="#333333")
+        sep = ctk.CTkFrame(top_ctrl, width=2, height=1, fg_color="#333333")
         sep.grid(row=0, column=1, sticky="ns", padx=2, pady=2)
 
         # --- 우측: 타겟 설정 ---
