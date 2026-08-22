@@ -575,12 +575,30 @@ class AIVisionFrame(ctk.CTkFrame):
         s3_head.pack(fill="x", padx=8, pady=(2, 1))
         ctk.CTkLabel(s3_head, text="자동화 요구사항", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
 
-        self.txt_prompt = ctk.CTkTextbox(left_f, height=60, font=ctk.CTkFont(size=12))
-        self.txt_prompt.pack(fill="x", padx=8, pady=(0, 2))
+        # 탭 뷰
+        self.tab_builder = ctk.CTkTabview(left_f, height=180)
+        self.tab_builder.pack(fill="both", expand=True, padx=8, pady=(0, 2))
+
+        tab_free = self.tab_builder.add("자유 입력")
+        tab_step = self.tab_builder.add("단계별 조립")
+
+        # 1. 자유 입력 탭
+        self.txt_prompt = ctk.CTkTextbox(tab_free, font=ctk.CTkFont(size=12))
+        self.txt_prompt.pack(fill="both", expand=True, padx=2, pady=2)
         self.txt_prompt.insert(
             "1.0",
             "아이디 입력창에 'admin', 비밀번호에 '1234'를 입력하고 로그인 버튼을 클릭."
         )
+
+        # 2. 단계별 조립 탭
+        self.step_widgets = []
+        self.sf_steps = ctk.CTkScrollableFrame(tab_step, fg_color="transparent")
+        self.sf_steps.pack(fill="both", expand=True, padx=2, pady=2)
+        
+        btn_add_step = ctk.CTkButton(tab_step, text="+ 단계 추가", height=28,
+                                     font=ctk.CTkFont(size=11, weight="bold"),
+                                     command=self._add_step_ui)
+        btn_add_step.pack(fill="x", padx=2, pady=2)
 
         # 변수 삽입 칩 버튼 영역
         chips_wrap = ctk.CTkFrame(left_f, fg_color="transparent")
@@ -1271,29 +1289,40 @@ class AIVisionFrame(ctk.CTkFrame):
         pop.focus_set()
 
     def _insert_phrase(self, phrase: str):
-        """요구사항 텍스트박스 커서 위치에 문장 조각 삽입"""
+        """활성화된 텍스트박스나 입력창의 커서 위치에 문장 조각 삽입"""
+        focused = self.focus_get()
+        target = focused if isinstance(focused, (ctk.CTkEntry, ctk.CTkTextbox)) else getattr(self, "txt_prompt", None)
+        
+        if not target:
+            return
+
         try:
-            idx = self.txt_prompt.index("insert")
+            idx = target.index("insert")
         except Exception:
             idx = "end"
-        # 현재 커서 앞이 공백/개행이 아니면 공백 추가
-        try:
-            before = self.txt_prompt.get("1.0", idx)
-            if before and before[-1] not in (" ", "\n", ""):
-                phrase = " " + phrase
-        except Exception:
-            pass
-        self.txt_prompt.insert(idx, phrase)
-        self.txt_prompt.focus()
+            
+        if isinstance(target, ctk.CTkTextbox):
+            try:
+                before = target.get("1.0", idx)
+                if before and before[-1] not in (" ", "\n", ""):
+                    phrase = " " + phrase
+            except Exception:
+                pass
+            target.insert(idx, phrase)
+        else: # CTkEntry
+            try:
+                before = target.get()[:target.index("insert")]
+                if before and before[-1] not in (" ", ""):
+                    phrase = " " + phrase
+            except Exception:
+                pass
+            target.insert(idx, phrase)
+
+        target.focus()
 
     def _insert_var_token(self, var_name: str):
-        """요구사항 텍스트박스 커서 위치에 {변수명} 삽입 (직접 삽입)"""
-        try:
-            idx = self.txt_prompt.index("insert")
-        except Exception:
-            idx = "end"
-        self.txt_prompt.insert(idx, f"{{{var_name}}}")
-        self.txt_prompt.focus()
+        """활성화된 텍스트박스나 입력창의 커서 위치에 {변수명} 삽입"""
+        self._insert_phrase(f"{{{var_name}}}")
 
     # ── 데이터 소스 기능 ──────────────────────────────────────────────────────
 
@@ -1580,10 +1609,44 @@ class AIVisionFrame(ctk.CTkFrame):
             lines.append(f"  → 코드에서 row[\"{data_items[0]['column_name']}\"] 형태로 값 참조")
             lines.append("")
 
-        # ③ 요구사항
-        lines.append("[요구사항]")
-        lines.append(user_prompt)
-        lines.append("")
+        # ③ 요구사항 (자유 입력 vs 단계별 조립 구분)
+        tab_mode = getattr(self, "tab_builder", None)
+        
+        if tab_mode and tab_mode.get() == "단계별 조립":
+            lines.append("[실행 단계 및 완료조건]")
+            for i, w in enumerate(getattr(self, "step_widgets", [])):
+                act = w["cb_act"].get()
+                tgt = w["cb_tgt"].get()
+                val = w["ent_val"].get().strip()
+                ctype = w["cb_ctype"].get()
+                ctgt = w["cb_ctgt"].get()
+                cval = w["ent_cval"].get().strip()
+                to = w["ent_to"].get().strip() or "10"
+                
+                lines.append(f"Step {i+1}:")
+                lines.append(f"  - 액션: {act}")
+                lines.append(f"  - 대상: {{{tgt}}}")
+                if val:
+                    lines.append(f"  - 입력값: {val}")
+                    
+                if ctype != "없음":
+                    c_str = ""
+                    if ctype == "고정 지연":
+                        c_str = f"{cval}ms 강제 대기 (고정 지연)"
+                    else:
+                        c_str = f"{{{ctgt}}} 요소가"
+                        if ctype == "요소 출현":
+                            c_str += " 화면에 나타날 때까지 대기 (visible)"
+                        elif ctype == "요소 사라짐":
+                            c_str += " 화면에서 사라질 때까지 대기 (hidden)"
+                        elif ctype == "텍스트 일치":
+                            c_str += f" 텍스트 '{cval}'와(과) 일치할 때까지 대기"
+                    lines.append(f"  - 완료조건: {c_str} (timeout: {to}s)")
+                lines.append("")
+        else:
+            lines.append("[요구사항]")
+            lines.append(user_prompt)
+            lines.append("")
 
         # ④ 코드 생성 지침
         if elem_items or data_items:
