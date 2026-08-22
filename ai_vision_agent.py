@@ -688,26 +688,25 @@ class AIVisionFrame(ctk.CTkFrame):
 
     def _create_cdp_shortcut(self, browser: str = "chrome"):
         """
-        Chrome 또는 Edge의 CDP 전용 바탕화면 바로가기를 자동 생성.
+        Chrome/Edge CDP 전용 바탕화면 바로가기 생성.
 
-        설계 핵심:
-          --remote-debugging-port : CDP 포트 개방 (Chrome=9222 / Edge=9223)
-          --user-data-dir         : 기존 프로필 폴더의 Default만 CDP 전용 폴더로 복사
-                                    → 저장된 비밀번호·쿠키·세션 유지
-                                    → 기존 브라우저와 잠금 충돌 없음 (별도 폴더)
-
-        사용 흐름:
-          1. 버튼 클릭 → 바탕화면에 .lnk 생성
-          2. 기존 Chrome/Edge 모두 닫기
-          3. 새 바로가기로 브라우저 실행 → 로그인
-          4. RPA 도구 [연결 확인] 클릭 → 초록 표시 → DOM 수집 (select 포함 완벽)
+        수정 이력:
+          v2: WshShortcut.Save 한글 파일명 저장 실패(0x80070003) 해결
+              - 파일명을 ASCII 전용으로 변경 (Chrome_CDP.lnk / Edge_CDP.lnk)
+              - Desktop 경로를 ctypes SHGetFolderPath로 안전하게 획득
         """
-        import subprocess
         import shutil
+        import ctypes
 
         LOCAL = os.environ.get("LOCALAPPDATA", "")
-        ROAMING = os.environ.get("APPDATA", "")
-        DESKTOP = os.path.join(os.environ.get("USERPROFILE", ""), "Desktop")
+
+        # Desktop 경로: ctypes SHGetFolderPath (CSIDL_DESKTOP=0) — 한글 경로 안전
+        try:
+            buf = ctypes.create_unicode_buffer(260)
+            ctypes.windll.shell32.SHGetFolderPathW(0, 0, 0, 0, buf)
+            DESKTOP = buf.value
+        except Exception:
+            DESKTOP = os.path.join(os.environ.get("USERPROFILE", ""), "Desktop")
 
         if browser == "chrome":
             exe_candidates = [
@@ -717,9 +716,10 @@ class AIVisionFrame(ctk.CTkFrame):
             ]
             src_profile = os.path.join(LOCAL, r"Google\Chrome\User Data")
             cdp_profile = os.path.join(LOCAL, r"Google\Chrome\User Data_CDP")
-            port         = 9222
-            label        = "Chrome"
-            sc_name      = "Chrome CDP 모드.lnk"
+            port    = 9222
+            label   = "Chrome"
+            sc_name = "Chrome_CDP.lnk"   # ASCII 파일명 (한글 실패 방지)
+            bat_name = "Chrome_CDP.bat"
         else:
             exe_candidates = [
                 r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -728,17 +728,17 @@ class AIVisionFrame(ctk.CTkFrame):
             ]
             src_profile = os.path.join(LOCAL, r"Microsoft\Edge\User Data")
             cdp_profile = os.path.join(LOCAL, r"Microsoft\Edge\User Data_CDP")
-            port         = 9223
-            label        = "Edge"
-            sc_name      = "Edge CDP 모드.lnk"
+            port    = 9223
+            label   = "Edge"
+            sc_name = "Edge_CDP.lnk"
+            bat_name = "Edge_CDP.bat"
 
-        # 실행 파일 탐색
         exe = next((p for p in exe_candidates if os.path.exists(p)), None)
         if not exe:
             messagebox.showerror("경로 오류", f"{label} 실행 파일을 찾을 수 없습니다.")
             return
 
-        # CDP 전용 프로필 폴더 생성 (Default만 복사 → 캐시 제외로 경량)
+        # CDP 전용 프로필 폴더 생성 (Default 폴더만 복사, 캐시 제외)
         try:
             if not os.path.exists(cdp_profile):
                 os.makedirs(cdp_profile, exist_ok=True)
@@ -759,11 +759,11 @@ class AIVisionFrame(ctk.CTkFrame):
         lnk_path = os.path.join(DESKTOP, sc_name)
         args_str = (
             f"--remote-debugging-port={port} "
-            f'--user-data-dir="{cdp_profile}" '
+            f"--user-data-dir=\"{cdp_profile}\" "
             f"--no-first-run --no-default-browser-check"
         )
 
-        # pywin32로 .lnk 생성 시도
+        created_file = sc_name
         try:
             import win32com.client
             shell = win32com.client.Dispatch("WScript.Shell")
@@ -772,23 +772,29 @@ class AIVisionFrame(ctk.CTkFrame):
             sc.Arguments        = args_str
             sc.WorkingDirectory = os.path.dirname(exe)
             sc.IconLocation     = exe + ",0"
-            sc.Description      = f"{label} CDP 모드 (포트 {port}) — RPA DOM 수집 전용"
+            # Description은 ASCII만 — 한글 포함 시 일부 환경 저장 실패
+            sc.Description = f"{label} CDP Mode Port {port}"
             sc.save()
-            created_file = sc_name
 
         except ImportError:
             # pywin32 없으면 .bat Fallback
-            bat_name = sc_name.replace(".lnk", ".bat")
             bat_path = os.path.join(DESKTOP, bat_name)
             with open(bat_path, "w", encoding="utf-8") as fh:
                 fh.write("@echo off\n")
                 fh.write(f'start "" "{exe}" {args_str}\n')
-            lnk_path = bat_path
             created_file = bat_name
 
         except Exception as ex:
-            messagebox.showerror("생성 실패", f"바로가기 생성 오류:\n{ex}")
-            return
+            # .lnk 실패 시 .bat 자동 Fallback
+            try:
+                bat_path = os.path.join(DESKTOP, bat_name)
+                with open(bat_path, "w", encoding="utf-8") as fh:
+                    fh.write("@echo off\n")
+                    fh.write(f'start "" "{exe}" {args_str}\n')
+                created_file = bat_name
+            except Exception as ex2:
+                messagebox.showerror("생성 실패", f"바로가기 생성 오류:\n{ex}\n\n.bat 생성도 실패:\n{ex2}")
+                return
 
         msg = (
             f"바탕화면에 [{created_file}]가 생성됐습니다.\n\n"
@@ -796,7 +802,7 @@ class AIVisionFrame(ctk.CTkFrame):
             f"1. 현재 열린 {label} 창을 모두 닫으십시오\n"
             f"2. 바탕화면의 [{created_file}]로 {label} 시작\n"
             f"3. 사이트 로그인 후 RPA 도구에서 [연결 확인] 클릭\n"
-            f"4. 초록 표시 확인 후 DOM 수집 — <select> 드롭다운 포함 완벽 수집"
+            f"4. 초록 표시 확인 후 DOM 수집 — select 드롭다운 포함 완벽 수집"
         )
         messagebox.showinfo("바로가기 생성 완료", msg)
 
