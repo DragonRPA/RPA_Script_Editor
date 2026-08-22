@@ -1103,22 +1103,159 @@ class AIVisionFrame(ctk.CTkFrame):
         self._render_keep_list()
         self._render_var_chips()
 
+    # ── 요소 타입 → 가능한 액션 매핑 ─────────────────────────────────────────
+    _ELEM_ACTIONS = {
+        # element_type 키워드 → [(표시 라벨, 삽입 문장 템플릿)]
+        "input":    [
+            ("값 입력",     "{var}에 '{값}'을 입력"),
+            ("내용 지우기", "{var}의 내용을 지우기"),
+            ("현재 값 확인","{var}의 현재 값을 확인"),
+        ],
+        "textarea": [
+            ("내용 입력",   "{var}에 '{내용}'을 입력"),
+            ("내용 지우기", "{var}의 내용을 모두 지우기"),
+        ],
+        "button": [
+            ("클릭",       "{var}을 클릭"),
+            ("더블클릭",   "{var}을 더블클릭"),
+            ("마우스 오버","{var}에 마우스를 올려두기"),
+            ("활성화 확인","{var}이 클릭 가능한 상태인지 확인"),
+        ],
+        "select": [
+            ("옵션 선택",   "{var}에서 '{옵션}'을 선택"),
+            ("현재 값 확인","{var}의 현재 선택값을 확인"),
+            ("전체 옵션 수집", "{var}의 모든 옵션 목록을 수집"),
+        ],
+        "checkbox": [
+            ("체크",       "{var}을 체크"),
+            ("체크 해제",  "{var}의 체크를 해제"),
+            ("상태 확인",  "{var}의 체크 상태를 확인"),
+        ],
+        "link": [
+            ("클릭",       "{var}을 클릭"),
+            ("href 확인",  "{var}의 링크 주소를 확인"),
+        ],
+        "table": [
+            ("데이터 추출", "{var}의 전체 데이터를 추출"),
+            ("행 수 확인",  "{var}의 행 수를 확인"),
+            ("특정 행 클릭","{var}에서 '{키워드}'가 포함된 행을 클릭"),
+        ],
+        "span":  [("텍스트 확인", "{var}의 텍스트를 확인"), ("표시 대기", "{var}가 화면에 나타날 때까지 대기")],
+        "div":   [("텍스트 확인", "{var}의 텍스트를 확인"), ("표시 대기", "{var}가 화면에 나타날 때까지 대기")],
+        "label": [("텍스트 확인", "{var}의 라벨 텍스트를 확인")],
+        "_default": [
+            ("클릭",         "{var}을 클릭"),
+            ("텍스트 확인",  "{var}의 텍스트를 확인"),
+            ("표시 대기",    "{var}가 화면에 나타날 때까지 대기"),
+            ("사라질 때 대기", "{var}가 화면에서 사라질 때까지 대기"),
+        ],
+    }
+
+    def _get_actions_for(self, element_type: str):
+        """element_type에 맞는 액션 목록 반환"""
+        t = (element_type or "").lower()
+        for key in self._ELEM_ACTIONS:
+            if key != "_default" and key in t:
+                return self._ELEM_ACTIONS[key]
+        return self._ELEM_ACTIONS["_default"]
+
     def _render_var_chips(self):
         """요구사항 텍스트박스 아래 변수 삽입 칩 버튼 갱신"""
         for w in self.frm_var_chips.winfo_children():
             w.destroy()
         for item in self.keep_list:
             var = item["var_name"]
-            def _insert(v=var):
-                self._insert_var_token(v)
-            ctk.CTkButton(
+            etype = item.get("element_type", "")
+
+            def _open_menu(v=var, it=item, btn_ref=[None]):
+                self._show_action_popup(v, it)
+
+            btn = ctk.CTkButton(
                 self.frm_var_chips, text=f"{{{var}}}",
                 height=24, font=ctk.CTkFont(family="Consolas", size=11),
-                fg_color="#37474f", hover_color="#546e7a", command=_insert
-            ).pack(side="left", padx=2, pady=2)
+                fg_color="#37474f", hover_color="#546e7a",
+                command=_open_menu
+            )
+            btn.pack(side="left", padx=2, pady=2)
+
+    def _show_action_popup(self, var_name: str, item: dict):
+        """요소 타입에 따른 액션 선택 팝업 표시"""
+        actions = self._get_actions_for(item.get("element_type", ""))
+
+        pop = ctk.CTkToplevel(self)
+        pop.overrideredirect(True)          # 제목 표시줄 없음 → 컨텍스트 메뉴 느낌
+        pop.attributes("-topmost", True)
+        pop.configure(fg_color="#1e1e1e")
+
+        # 팝업 위치: 마우스 커서 근방
+        try:
+            x = self.winfo_pointerx()
+            y = self.winfo_pointery()
+        except Exception:
+            x, y = 400, 400
+        pop.geometry(f"+{x}+{y}")
+
+        # 헤더: 요소 타입 표시
+        etype_disp = item.get("element_type") or "요소"
+        hdr = ctk.CTkFrame(pop, fg_color="#111111", corner_radius=0)
+        hdr.pack(fill="x")
+        ctk.CTkLabel(
+            hdr,
+            text=f"  {{{var_name}}}  ·  {etype_disp}",
+            font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
+            text_color="#ffd54f", anchor="w"
+        ).pack(side="left", padx=8, pady=6)
+        ctk.CTkButton(
+            hdr, text="✕", width=24, height=24, font=ctk.CTkFont(size=10),
+            fg_color="transparent", hover_color="#333333",
+            command=pop.destroy
+        ).pack(side="right", padx=4)
+
+        # 액션 버튼 목록
+        for label, template in actions:
+            phrase = template.replace("{var}", f"{{{var_name}}}")
+
+            def _pick(ph=phrase, p=pop):
+                self._insert_phrase(ph)
+                p.destroy()
+
+            btn = ctk.CTkButton(
+                pop, text=f"  {label}",
+                anchor="w", height=32, font=ctk.CTkFont(size=12),
+                fg_color="transparent", hover_color="#2a2a2a",
+                text_color="#dddddd", corner_radius=0,
+                command=_pick
+            )
+            btn.pack(fill="x", padx=0, pady=0)
+
+            # 미리보기 라벨
+            ctk.CTkLabel(
+                pop, text=f"    → {phrase}",
+                anchor="w", font=ctk.CTkFont(size=10), text_color="#555555"
+            ).pack(fill="x", padx=0)
+
+        # 팝업 바깥 클릭 시 닫기
+        pop.bind("<FocusOut>", lambda e: pop.destroy())
+        pop.focus_set()
+
+    def _insert_phrase(self, phrase: str):
+        """요구사항 텍스트박스 커서 위치에 문장 조각 삽입"""
+        try:
+            idx = self.txt_prompt.index("insert")
+        except Exception:
+            idx = "end"
+        # 현재 커서 앞이 공백/개행이 아니면 공백 추가
+        try:
+            before = self.txt_prompt.get("1.0", idx)
+            if before and before[-1] not in (" ", "\n", ""):
+                phrase = " " + phrase
+        except Exception:
+            pass
+        self.txt_prompt.insert(idx, phrase)
+        self.txt_prompt.focus()
 
     def _insert_var_token(self, var_name: str):
-        """요구사항 텍스트박스 커서 위치에 {변수명} 삽입"""
+        """요구사항 텍스트박스 커서 위치에 {변수명} 삽입 (직접 삽입)"""
         try:
             idx = self.txt_prompt.index("insert")
         except Exception:
