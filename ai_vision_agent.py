@@ -393,43 +393,6 @@ class AIVisionFrame(ctk.CTkFrame):
         left_f = ctk.CTkFrame(body, corner_radius=6)
         left_f.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
 
-        # [섹션 1] 타겟 이미지
-        s1_head = ctk.CTkFrame(left_f, fg_color="transparent")
-        s1_head.pack(fill="x", padx=8, pady=(4, 2))
-        ctk.CTkLabel(s1_head, text="타겟 화면 이미지", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
-
-        cap_bar = ctk.CTkFrame(left_f, fg_color="transparent")
-        cap_bar.pack(fill="x", padx=8, pady=(0, 2))
-
-        btn_paste_clip = ctk.CTkButton(
-            cap_bar, text="붙여넣기", width=110, height=30,
-            fg_color="#00695c", hover_color="#004d40", font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._paste_from_clipboard
-        )
-        btn_paste_clip.pack(side="left", padx=(0, 6))
-
-        btn_cap_screen = ctk.CTkButton(
-            cap_bar, text="화면 캡처", width=95, height=30,
-            fg_color="#1f6aa5", hover_color="#144d75", font=ctk.CTkFont(size=12),
-            command=self._capture_screen_now
-        )
-        btn_cap_screen.pack(side="left", padx=4)
-
-        btn_browse_img = ctk.CTkButton(
-            cap_bar, text="파일 선택", width=95, height=30,
-            fg_color="#444444", hover_color="#333333", font=ctk.CTkFont(size=12),
-            command=self._browse_image_file
-        )
-        btn_browse_img.pack(side="left", padx=4)
-
-        self.frame_preview = ctk.CTkFrame(left_f, height=80, fg_color="#181818", corner_radius=6)
-        self.frame_preview.pack(fill="x", padx=8, pady=2)
-        self.lbl_img_preview = ctk.CTkLabel(
-            self.frame_preview, text="이미지 미리보기 영역",
-            font=ctk.CTkFont(size=12), text_color="#888888"
-        )
-        self.lbl_img_preview.pack(expand=True, pady=10)
-
         # [섹션 2] 대상 창 / URL / 브라우저 / DOM 카탈로그
         s2_head = ctk.CTkFrame(left_f, fg_color="transparent")
         s2_head.pack(fill="x", padx=8, pady=(6, 2))
@@ -960,53 +923,45 @@ class AIVisionFrame(ctk.CTkFrame):
             pass
 
     def _render_element_card(self, parent_frame, itm: Dict[str, Any], icon: str = ""):
-        name = itm.get("label") or itm.get("text") or itm.get("type") or "요소"
+        name = itm.get("label") or itm.get("text") or itm.get("type") or "알수없음"
         path = itm.get("path") or ""
         raw_html = itm.get("html") or ""
         sel = itm.get("selector") or ""
         code = itm.get("playwrightCode") or ""
 
-        card = ctk.CTkFrame(parent_frame, corner_radius=6, fg_color="#2b2b2b")
-        card.pack(fill="x", pady=3, padx=2)
+        card = ctk.CTkFrame(parent_frame, corner_radius=6, fg_color="#2b2b2b", height=34)
+        card.pack(fill="x", pady=2, padx=2)
+        card.pack_propagate(False)
 
-        # 1행: 아이콘 + 라벨명 + [HTML 보기] + [선택]
-        top_r = ctk.CTkFrame(card, fg_color="transparent")
-        top_r.pack(fill="x", padx=8, pady=(5, 2))
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="both", expand=True, padx=8, pady=0)
 
-        ctk.CTkLabel(
-            top_r, text=f"{icon} {name}", font=ctk.CTkFont(size=12, weight="bold"), text_color="#ffffff", anchor="w"
-        ).pack(side="left", fill="x", expand=True)
+        disp_name = name if len(name) <= 15 else name[:13] + ".."
+        lbl_name = ctk.CTkLabel(row, text=f"{icon} {disp_name}", width=120, font=ctk.CTkFont(size=11, weight="bold"), text_color="#ffffff", anchor="w")
+        lbl_name.pack(side="left", padx=(0, 8))
+
+        disp_path = path if len(path) <= 18 else path[:15] + ".."
+        if disp_path:
+            lbl_path = ctk.CTkLabel(row, text=f"경로: {disp_path}", width=130, font=ctk.CTkFont(size=10), text_color="#b0bec5", anchor="w")
+            lbl_path.pack(side="left", padx=4)
+
+        lbl_sel = ctk.CTkLabel(row, text=sel, font=ctk.CTkFont(family="Consolas", size=10), text_color="#64b5f6", anchor="w")
+        lbl_sel.pack(side="left", fill="x", expand=True, padx=4)
 
         if raw_html:
             btn_html = ctk.CTkButton(
-                top_r, text="HTML 보기", width=75, height=26, font=ctk.CTkFont(size=11),
+                row, text="HTML", width=46, height=22, font=ctk.CTkFont(size=10),
                 fg_color="#444444", hover_color="#333333",
                 command=lambda: self._show_element_html(name, raw_html, sel)
             )
-            btn_html.pack(side="right", padx=(4, 2))
+            btn_html.pack(side="right", padx=(4, 0))
 
         btn_keep = ctk.CTkButton(
-            top_r, text="Keep ★", width=70, height=26, font=ctk.CTkFont(size=11, weight="bold"),
+            row, text="Keep ★", width=56, height=22, font=ctk.CTkFont(size=10, weight="bold"),
             fg_color="#7b5800", hover_color="#a07000",
             command=lambda i=itm: self._on_keep_item(i)
         )
-        btn_keep.pack(side="right", padx=2)
-
-        # 2행: 3~4단계 상위 조상 계층 텍스트 경로 (존재 시)
-        if path and path != name:
-            mid_r = ctk.CTkFrame(card, fg_color="transparent")
-            mid_r.pack(fill="x", padx=8, pady=(0, 2))
-            ctk.CTkLabel(
-                mid_r, text=f"경로: {path}", font=ctk.CTkFont(size=11), text_color="#b0bec5", anchor="w"
-            ).pack(side="left", fill="x", expand=True)
-
-        # 3행: 추천 셀렉터
-        bot_r = ctk.CTkFrame(card, fg_color="transparent")
-        bot_r.pack(fill="x", padx=8, pady=(0, 5))
-
-        ctk.CTkLabel(
-            bot_r, text=f"셀렉터: {sel}", font=ctk.CTkFont(family="Consolas", size=12), text_color="#64b5f6", anchor="w"
-        ).pack(side="left", fill="x", expand=True)
+        btn_keep.pack(side="right", padx=0)
 
     def _show_element_html(self, name: str, raw_html: str, sel: str):
         """요소의 실제 HTML 코드 및 세부 속성을 팝업으로 표출"""
@@ -1062,7 +1017,7 @@ class AIVisionFrame(ctk.CTkFrame):
         return name
 
     def _on_keep_item(self, itm: Dict[str, Any]):
-        """객체를 Keep 목록에 추가 (이미 있으면 제거 토글)"""
+        """요소 Keep 목록에 추가 (이미 있으면 제거)"""
         sel = itm.get("selector") or ""
         if not sel:
             return
@@ -1072,13 +1027,28 @@ class AIVisionFrame(ctk.CTkFrame):
         if existing_idx >= 0:
             self.keep_list.pop(existing_idx)
         else:
-            self.keep_list.append({
-                "var_name": self._make_var_name(itm),
-                "label": itm.get("label") or itm.get("text") or "요소",
+            vname = self._make_var_name(itm)
+            new_item = {
+                "var_name": vname,
+                "label": itm.get("label") or itm.get("text") or "알수없음",
                 "selector": sel,
                 "element_type": itm.get("type") or "element",
                 "path": itm.get("path") or ""
-            })
+            }
+            if getattr(self, "db", None) and getattr(self, "current_project", None):
+                try:
+                    eid = self.db.save_keep_element(
+                        project_id=self.current_project["id"],
+                        target_id=self.current_target["id"] if getattr(self, "current_target", None) else None,
+                        var_name=vname,
+                        keep_type="element",
+                        selector=sel,
+                        element_type=itm.get("type") or "element"
+                    )
+                    new_item["id"] = eid
+                except Exception as e:
+                    print(f"DB Keep 에러: {e}")
+            self.keep_list.append(new_item)
         self._render_keep_list()
         self._render_var_chips()
 
@@ -1777,82 +1747,8 @@ class AIVisionFrame(ctk.CTkFrame):
         messagebox.showerror("DOM 수집 오류", f"수집 실패:\n{err_msg}")
 
 
-    # =========================================================================
-    # [섹션 1] 이미지
-    # =========================================================================
-    def _paste_from_clipboard(self):
-        try:
-            clip_data = ImageGrab.grabclipboard()
-            if isinstance(clip_data, Image.Image):
-                temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "captures")
-                os.makedirs(temp_dir, exist_ok=True)
-                shot_path = os.path.join(temp_dir, f"clip_{int(time.time())}.png")
-                clip_data.save(shot_path, "PNG")
-
-                self.current_image_path = shot_path
-                self._display_preview_image(shot_path)
-                messagebox.showinfo("붙여넣기", "스크린샷 이미지가 로드되었습니다.")
-                return
-            elif isinstance(clip_data, list) and len(clip_data) > 0 and os.path.exists(clip_data[0]):
-                p = clip_data[0]
-                if p.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-                    self.current_image_path = p
-                    self._display_preview_image(p)
-                    messagebox.showinfo("파일 로드", f"이미지 파일이 로드되었습니다:\n{p}")
-                    return
-
-            messagebox.showwarning("안내", "클립보드에 이미지가 없습니다.")
-        except Exception as e:
-            messagebox.showerror("오류", f"이미지 처리 실패: {e}")
-
-    def _capture_screen_now(self):
-        if self.parent_app and hasattr(self.parent_app, "withdraw"):
-            self.parent_app.withdraw()
-        time.sleep(0.3)
-
-        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "captures")
-        os.makedirs(temp_dir, exist_ok=True)
-        shot_path = os.path.join(temp_dir, f"screen_{int(time.time())}.png")
-
-        try:
-            if HAS_PYAUTOGUI:
-                shot = pyautogui.screenshot()
-                shot.save(shot_path)
-            else:
-                shot = ImageGrab.grab()
-                shot.save(shot_path)
-
-            self.current_image_path = shot_path
-            self._display_preview_image(shot_path)
-        except Exception as e:
-            messagebox.showerror("오류", f"캡처 실패: {e}")
-        finally:
-            if self.parent_app and hasattr(self.parent_app, "deiconify"):
-                self.parent_app.deiconify()
-
-    def _browse_image_file(self):
-        p = filedialog.askopenfilename(filetypes=[("이미지 파일", "*.png;*.jpg;*.jpeg;*.webp")])
-        if p:
-            self.current_image_path = p
-            self._display_preview_image(p)
-
-    def _display_preview_image(self, path: str):
-        try:
-            pil_img = Image.open(path)
-            pil_img.thumbnail((380, 75))
-            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
-
-            self.lbl_img_preview.configure(image=ctk_img, text="")
-            self.lbl_img_preview.image = ctk_img
-        except Exception as ex:
-            self.lbl_img_preview.configure(text=f"미리보기 실패: {ex}")
-
-    # =========================================================================
-    # AI 코드 생성
-    # =========================================================================
     def _start_ai_generation(self):
-        image_valid = self.current_image_path and os.path.exists(self.current_image_path)
-        img_path_arg = self.current_image_path if image_valid else None
+        img_path_arg = None
 
         prompt = self.txt_prompt.get("1.0", "end").strip()
         if not prompt:
