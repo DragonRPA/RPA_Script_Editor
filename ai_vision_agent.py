@@ -2044,8 +2044,7 @@ class AIVisionFrame(ctk.CTkFrame):
             self.ent_ollama_url.delete(0, "end")
             self.ent_ollama_url.insert(0, ollama_u)
         if target_u:
-            self.cbo_target_url.delete(0, "end")
-            self.cbo_target_url.insert(0, target_u)
+            self.cbo_target_url.set(target_u)
 
         if "Ollama" in last_engine:
             self.seg_engine.set("Local Ollama")
