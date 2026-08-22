@@ -330,17 +330,18 @@ class AIVisionFrame(ctk.CTkFrame):
         self._update_project_bar()
 
         # 1. 상단 글로벌 컨트롤 바 (AI 설정 + 대상 URL/창)
-        top_ctrl = ctk.CTkFrame(self, corner_radius=6)
-        top_ctrl.grid(row=1, column=0, sticky="ew", padx=6, pady=(4, 2))
+        top_ctrl = ctk.CTkFrame(self, corner_radius=4)
+        top_ctrl.grid(row=1, column=0, sticky="ew", padx=6, pady=(2, 1))
 
-        # 좌우 분할을 위해 grid 사용 (더 깔끔한 정렬)
+        # 좌우 분할을 위해 grid 사용
         top_ctrl.grid_columnconfigure(0, weight=0, minsize=420)
         top_ctrl.grid_columnconfigure(1, weight=0)
         top_ctrl.grid_columnconfigure(2, weight=1)
+        top_ctrl.grid_rowconfigure(0, weight=0)
         
         # --- 좌측: AI 설정 ---
         ai_frame = ctk.CTkFrame(top_ctrl, fg_color="transparent")
-        ai_frame.grid(row=0, column=0, sticky="nw", padx=8, pady=4)
+        ai_frame.grid(row=0, column=0, sticky="nw", padx=6, pady=2)
         
         # Row 1 of AI
         ai_r1 = ctk.CTkFrame(ai_frame, fg_color="transparent")
@@ -384,11 +385,11 @@ class AIVisionFrame(ctk.CTkFrame):
 
         # --- 수직 구분선 ---
         sep = ctk.CTkFrame(top_ctrl, width=2, fg_color="#333333")
-        sep.grid(row=0, column=1, sticky="ns", padx=4, pady=4)
+        sep.grid(row=0, column=1, sticky="ns", padx=2, pady=2)
 
         # --- 우측: 타겟 설정 ---
         tgt_frame = ctk.CTkFrame(top_ctrl, fg_color="transparent")
-        tgt_frame.grid(row=0, column=2, sticky="nsew", padx=8, pady=4)
+        tgt_frame.grid(row=0, column=2, sticky="nsew", padx=6, pady=2)
 
         # Row 1 of Target
         t_row1 = ctk.CTkFrame(tgt_frame, fg_color="transparent")
@@ -423,7 +424,7 @@ class AIVisionFrame(ctk.CTkFrame):
 
         # 2. 본문 3분할 (좌: 리소스 / 중: 프롬프트&Keep / 우: 코드 결과)
         body = ctk.CTkFrame(self, corner_radius=6)
-        body.grid(row=2, column=0, sticky="nsew", padx=6, pady=2)
+        body.grid(row=2, column=0, sticky="nsew", padx=6, pady=(1, 2))
         
         # 3-Column Grid Configuration
         body.grid_columnconfigure(0, weight=1, minsize=300) # Col 0: DOM / Data
