@@ -394,86 +394,46 @@ class AIVisionFrame(ctk.CTkFrame):
         left_f.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
 
         # [섹션 2] 대상 창 / URL / 브라우저 / DOM 카탈로그
-        s2_head = ctk.CTkFrame(left_f, fg_color="transparent")
-        s2_head.pack(fill="x", padx=8, pady=(6, 2))
-        ctk.CTkLabel(s2_head, text="대상 창 및 URL", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
 
-        # CDP 상태 표시 바
-        cdp_bar = ctk.CTkFrame(left_f, fg_color="#1a1a2e", corner_radius=6)
-        cdp_bar.pack(fill="x", padx=8, pady=(0, 4))
+        # Row 1: CDP Status | [Chrome] | [Edge] | Target Window [CBO] | [Refresh]
+        row1 = ctk.CTkFrame(left_f, fg_color="transparent")
+        row1.pack(fill="x", padx=8, pady=(2, 2))
+        
+        self.lbl_cdp_status = ctk.CTkLabel(row1, text="● CDP 미연결", font=ctk.CTkFont(size=11, weight="bold"), text_color="#888888", width=80, anchor="w")
+        self.lbl_cdp_status.pack(side="left")
+        
+        btn_cdp_launch = ctk.CTkButton(row1, text="Chrome", width=60, height=26, font=ctk.CTkFont(size=11), fg_color="#1a3a5c", command=lambda: self._create_cdp_shortcut("chrome"))
+        btn_cdp_launch.pack(side="left", padx=2)
+        btn_cdp_launch_edge = ctk.CTkButton(row1, text="Edge", width=50, height=26, font=ctk.CTkFont(size=11), fg_color="#1a3a3a", command=lambda: self._create_cdp_shortcut("edge"))
+        btn_cdp_launch_edge.pack(side="left", padx=(2, 10))
 
-        self.lbl_cdp_status = ctk.CTkLabel(
-            cdp_bar, text="● CDP 미연결", font=ctk.CTkFont(size=12, weight="bold"),
-            text_color="#888888", anchor="w"
-        )
-        self.lbl_cdp_status.pack(side="left", padx=(8, 6), pady=4)
-
-
-        btn_cdp_launch = ctk.CTkButton(
-            cdp_bar, text="Chrome CDP 바로가기 생성", width=180, height=26, font=ctk.CTkFont(size=12),
-            fg_color="#1a3a5c", hover_color="#122a44", command=lambda: self._create_cdp_shortcut("chrome")
-        )
-        btn_cdp_launch.pack(side="left", padx=(0, 4), pady=4)
-
-        btn_cdp_launch_edge = ctk.CTkButton(
-            cdp_bar, text="Edge CDP 바로가기 생성", width=168, height=26, font=ctk.CTkFont(size=12),
-            fg_color="#1a3a3a", hover_color="#122a2a", command=lambda: self._create_cdp_shortcut("edge")
-        )
-        btn_cdp_launch_edge.pack(side="left", padx=(0, 6), pady=4)
-
-        # 윈도우 창 선택 드롭다운
-        win_bar = ctk.CTkFrame(left_f, fg_color="transparent")
-        win_bar.pack(fill="x", padx=8, pady=(0, 2))
-
-        ctk.CTkLabel(win_bar, text="대상 창", font=ctk.CTkFont(size=12, weight="bold"), width=55).pack(side="left", padx=(0, 4))
-        self.cbo_windows = ctk.CTkComboBox(win_bar, values=["(창 검색 중)"], height=30, font=ctk.CTkFont(size=12))
-        self.cbo_windows.pack(side="left", fill="x", expand=True, padx=(0, 6))
-
-        btn_refresh_wins = ctk.CTkButton(
-            win_bar, text="창 갱신", width=75, height=30, font=ctk.CTkFont(size=12), fg_color="#333333",
-            command=self._refresh_window_list
-        )
+        ctk.CTkLabel(row1, text="대상 창:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=4)
+        self.cbo_windows = ctk.CTkComboBox(row1, values=["(창 검색 전)"], height=26, font=ctk.CTkFont(size=11))
+        self.cbo_windows.pack(side="left", fill="x", expand=True, padx=4)
+        
+        btn_refresh_wins = ctk.CTkButton(row1, text="갱신", width=40, height=26, font=ctk.CTkFont(size=11), fg_color="#333333", command=self._refresh_window_list)
         btn_refresh_wins.pack(side="right")
 
-        # URL 입력 및 브라우저 선택 & 수집 버튼
-        url_bar = ctk.CTkFrame(left_f, fg_color="transparent")
-        url_bar.pack(fill="x", padx=8, pady=(2, 2))
-
-        ctk.CTkLabel(url_bar, text="대상 URL", font=ctk.CTkFont(size=12, weight="bold"), width=55).pack(side="left", padx=(0, 4))
-        self.ent_target_url = ctk.CTkEntry(
-            url_bar, height=30, font=ctk.CTkFont(size=12), placeholder_text="예: http://175.119.156.105:3000/contract/list"
-        )
-        self.ent_target_url.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        # Row 2: Target URL [Entry] | [Harvest DOM]
+        row2 = ctk.CTkFrame(left_f, fg_color="transparent")
+        row2.pack(fill="x", padx=8, pady=(0, 2))
+        
+        ctk.CTkLabel(row2, text="대상 URL:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=4)
+        self.ent_target_url = ctk.CTkEntry(row2, height=26, font=ctk.CTkFont(size=11), placeholder_text="예: http://175.119.156.105...")
+        self.ent_target_url.pack(side="left", fill="x", expand=True, padx=4)
         self.ent_target_url.bind("<FocusOut>", lambda e: self._save_all_configs())
 
-        self.btn_harvest_dom = ctk.CTkButton(
-            url_bar, text="DOM 수집", width=105, height=30,
-            fg_color="#1f6aa5", hover_color="#144d75", font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._start_harvest_dom
-        )
+        self.btn_harvest_dom = ctk.CTkButton(row2, text="DOM 수집", width=70, height=26, fg_color="#1f6aa5", font=ctk.CTkFont(size=11, weight="bold"), command=self._start_harvest_dom)
         self.btn_harvest_dom.pack(side="right")
 
-        # 브라우저 선택 옵션 바
-        browser_bar = ctk.CTkFrame(left_f, fg_color="transparent")
-        browser_bar.pack(fill="x", padx=8, pady=(2, 2))
-
-        ctk.CTkLabel(browser_bar, text="브라우저", font=ctk.CTkFont(size=12, weight="bold"), width=55).pack(side="left", padx=(0, 4))
-        self.seg_browser = ctk.CTkSegmentedButton(
-            browser_bar, values=["Chrome", "Edge", "기본"],
-            font=ctk.CTkFont(size=11, weight="bold"),
-            command=lambda _: self._save_all_configs()
-        )
-        self.seg_browser.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self.seg_browser.set("Chrome")
-
-        # 유형별 조작 객체 탭뷰
+        # 조작 객체 상태 라벨
         self.lbl_dom_status = ctk.CTkLabel(
             left_f, text="조작 객체 목록",
             font=ctk.CTkFont(size=12, weight="bold"), text_color="#aaaaaa", anchor="w"
         )
-        self.lbl_dom_status.pack(fill="x", padx=8, pady=(4, 0))
+        self.lbl_dom_status.pack(fill="x", padx=8, pady=(2, 0))
 
-        self.tabview_dom = ctk.CTkTabview(left_f, height=180)
+        self.tabview_dom = ctk.CTkTabview(left_f, height=140)
         self.tabview_dom.pack(fill="both", expand=True, padx=8, pady=(1, 2))
 
         self.tab_inputs = self.tabview_dom.add("입력창 (0)")
@@ -524,7 +484,7 @@ class AIVisionFrame(ctk.CTkFrame):
             command=self._clear_keep_list
         ).pack(side="right")
 
-        self.frm_keep_panel = ctk.CTkScrollableFrame(left_f, height=110, fg_color="#1a1a1a", corner_radius=6)
+        self.frm_keep_panel = ctk.CTkScrollableFrame(left_f, height=90, fg_color="#1a1a1a", corner_radius=6)
         self.frm_keep_panel.pack(fill="x", padx=8, pady=(0, 4))
 
         ctk.CTkLabel(
@@ -2004,7 +1964,6 @@ class AIVisionFrame(ctk.CTkFrame):
         last_engine = "Google Gemini"
         last_gemini_model = "gemini-2.5-flash"
         last_ollama_model = "qwen3-vl:4b"
-        last_browser = "Chrome"
 
         for cfg_path in [
             self._CONFIG_FILE,
@@ -2020,7 +1979,6 @@ class AIVisionFrame(ctk.CTkFrame):
                         last_engine = cfg.get("last_ai_engine", last_engine)
                         last_gemini_model = cfg.get("last_gemini_model", last_gemini_model)
                         last_ollama_model = cfg.get("last_ollama_model", last_ollama_model)
-                        last_browser = cfg.get("last_browser_choice", last_browser)
                 except Exception:
                     pass
 
@@ -2046,8 +2004,6 @@ class AIVisionFrame(ctk.CTkFrame):
         if last_ollama_model:
             self.cbo_ollama_model.set(last_ollama_model)
 
-        if last_browser in ["Chrome", "Edge", "기본"]:
-            self.seg_browser.set(last_browser)
 
     def _save_all_configs(self):
         data_to_save = {
@@ -2056,8 +2012,7 @@ class AIVisionFrame(ctk.CTkFrame):
             "target_url": self.ent_target_url.get().strip(),
             "last_ai_engine": self.seg_engine.get(),
             "last_gemini_model": self.cbo_gemini_model.get(),
-            "last_ollama_model": self.cbo_ollama_model.get(),
-            "last_browser_choice": "Chrome"
+            "last_ollama_model": self.cbo_ollama_model.get()
         }
 
         for cfg_path in [
