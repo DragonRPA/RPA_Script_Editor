@@ -1,4 +1,4 @@
-﻿"""
+"""
 Universal RPA - Vision AI Code Generator & DOM Inspector
 Google Gemini + Local Ollama
 - 최상위 메인 탭 내장
@@ -291,6 +291,7 @@ class AIVisionFrame(ctk.CTkFrame):
         self.preview_image_ref: Optional[ImageTk.PhotoImage] = None
         self.current_catalog: Dict[str, List[Dict[str, Any]]] = {}
         self.open_windows_list: List[Tuple[int, str]] = []
+        self.keep_list: List[Dict[str, Any]] = []
 
         self._build_ui()
         self._load_saved_configs()
@@ -503,20 +504,24 @@ class AIVisionFrame(ctk.CTkFrame):
         for sf in self.scroll_frames.values():
             sf.pack(fill="both", expand=True)
 
-        # 선택 셀렉터 표시 바
-        sel_box = ctk.CTkFrame(left_f, corner_radius=6, fg_color="#181818")
-        sel_box.pack(fill="x", padx=8, pady=(2, 4))
+        # ── [섹션 K] Keep 목록 패널 ──────────────────────────────────────────────
+        keep_head = ctk.CTkFrame(left_f, fg_color="transparent")
+        keep_head.pack(fill="x", padx=8, pady=(4, 1))
+        ctk.CTkLabel(keep_head, text="Keep 목록", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        ctk.CTkButton(
+            keep_head, text="전체 삭제", width=70, height=24,
+            font=ctk.CTkFont(size=11), fg_color="#5a2d2d", hover_color="#7a1a1a",
+            command=self._clear_keep_list
+        ).pack(side="right")
 
-        ctk.CTkLabel(sel_box, text="선택 셀렉터", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(8, 6), pady=4)
-        self.lbl_selected_sel = ctk.CTkEntry(sel_box, height=30, font=ctk.CTkFont(family="Consolas", size=12), fg_color="#262626")
-        self.lbl_selected_sel.pack(side="left", fill="x", expand=True, padx=(0, 6), pady=4)
-        self.lbl_selected_sel.insert(0, "")
+        self.frm_keep_panel = ctk.CTkScrollableFrame(left_f, height=110, fg_color="#1a1a1a", corner_radius=6)
+        self.frm_keep_panel.pack(fill="x", padx=8, pady=(0, 4))
 
-        btn_copy_sel = ctk.CTkButton(sel_box, text="복사", width=55, height=30, font=ctk.CTkFont(size=12), fg_color="#444444", command=self._copy_selected_selector)
-        btn_copy_sel.pack(side="right", padx=(0, 6), pady=4)
-
-        btn_inject_prompt = ctk.CTkButton(sel_box, text="요구사항 추가", width=105, height=30, font=ctk.CTkFont(size=12), fg_color="#00695c", command=self._inject_selected_into_prompt)
-        btn_inject_prompt.pack(side="right", padx=(0, 4), pady=4)
+        ctk.CTkLabel(
+            self.frm_keep_panel,
+            text="Keep된 항목이 없습니다. 객체 카드의 [Keep ★] 버튼을 누르세요.",
+            font=ctk.CTkFont(size=11), text_color="#555555"
+        ).pack(pady=10)
 
         # [섹션 3] 요구사항 입력
         s3_head = ctk.CTkFrame(left_f, fg_color="transparent")
@@ -524,11 +529,15 @@ class AIVisionFrame(ctk.CTkFrame):
         ctk.CTkLabel(s3_head, text="자동화 요구사항", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
 
         self.txt_prompt = ctk.CTkTextbox(left_f, height=60, font=ctk.CTkFont(size=12))
-        self.txt_prompt.pack(fill="x", padx=8, pady=(0, 4))
+        self.txt_prompt.pack(fill="x", padx=8, pady=(0, 2))
         self.txt_prompt.insert(
             "1.0",
             "아이디 입력창에 'admin', 비밀번호에 '1234'를 입력하고 로그인 버튼을 클릭."
         )
+
+        # 변수 삽입 칩 버튼 영역 (Keep 아이템 추가 시 동적 생성)
+        self.frm_var_chips = ctk.CTkFrame(left_f, fg_color="transparent")
+        self.frm_var_chips.pack(fill="x", padx=8, pady=(0, 4))
 
         # 실행 버튼
         self.btn_generate = ctk.CTkButton(
@@ -889,12 +898,12 @@ class AIVisionFrame(ctk.CTkFrame):
             )
             btn_html.pack(side="right", padx=(4, 2))
 
-        btn_pick = ctk.CTkButton(
-            top_r, text="선택", width=55, height=26, font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#1f6aa5", hover_color="#144d75",
-            command=lambda: self._select_element(name, sel, code)
+        btn_keep = ctk.CTkButton(
+            top_r, text="Keep ★", width=70, height=26, font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color="#7b5800", hover_color="#a07000",
+            command=lambda i=itm: self._on_keep_item(i)
         )
-        btn_pick.pack(side="right", padx=2)
+        btn_keep.pack(side="right", padx=2)
 
         # 2행: 3~4단계 상위 조상 계층 텍스트 경로 (존재 시)
         if path and path != name:
@@ -942,21 +951,158 @@ class AIVisionFrame(ctk.CTkFrame):
         ctk.CTkButton(btn_bar, text="HTML 복사", width=100, height=32, font=ctk.CTkFont(size=12), fg_color="#1f6aa5", command=_copy).pack(side="left")
         ctk.CTkButton(btn_bar, text="닫기", width=80, height=32, font=ctk.CTkFont(size=12), fg_color="#444444", command=pop.destroy).pack(side="right")
 
-    def _select_element(self, name: str, sel: str, code: str):
-        self.lbl_selected_sel.delete(0, "end")
-        self.lbl_selected_sel.insert(0, code or f'page.locator("{sel}")')
+    # ── Keep 기능 ─────────────────────────────────────────────────────────────
 
-    def _copy_selected_selector(self):
-        sel_text = self.lbl_selected_sel.get().strip()
-        if sel_text:
-            self.clipboard_clear()
-            self.clipboard_append(sel_text)
-            messagebox.showinfo("복사 완료", "셀렉터가 복사되었습니다.")
+    def _make_var_name(self, itm: Dict[str, Any]) -> str:
+        """아이템으로부터 타입_레이블 형식의 변수명 자동 생성"""
+        import re
+        raw_type = itm.get("type") or "요소"
+        elem_type = (raw_type
+                     .replace("input", "입력")
+                     .replace("button", "버튼")
+                     .replace("select", "드롭다운")
+                     .replace("link", "링크"))
+        label = itm.get("label") or itm.get("text") or "항목"
+        label_clean = re.sub(r"[^가-힣a-zA-Z0-9]", "", label)[:10]
+        type_clean = re.sub(r"[^가-힣a-zA-Z0-9]", "", elem_type)[:4]
+        base = f"{type_clean}_{label_clean}" if label_clean else type_clean
+        name = base
+        existing = [k.get("var_name") for k in self.keep_list]
+        count = 1
+        while name in existing:
+            name = f"{base}_{count}"
+            count += 1
+        return name
 
-    def _inject_selected_into_prompt(self):
-        sel_text = self.lbl_selected_sel.get().strip()
-        if sel_text:
-            self.txt_prompt.insert("end", f"\n- {sel_text}")
+    def _on_keep_item(self, itm: Dict[str, Any]):
+        """객체를 Keep 목록에 추가 (이미 있으면 제거 토글)"""
+        sel = itm.get("selector") or ""
+        if not sel:
+            return
+        existing_idx = next(
+            (i for i, k in enumerate(self.keep_list) if k["selector"] == sel), -1
+        )
+        if existing_idx >= 0:
+            self.keep_list.pop(existing_idx)
+        else:
+            self.keep_list.append({
+                "var_name": self._make_var_name(itm),
+                "label": itm.get("label") or itm.get("text") or "요소",
+                "selector": sel,
+                "element_type": itm.get("type") or "element",
+                "path": itm.get("path") or ""
+            })
+        self._render_keep_list()
+        self._render_var_chips()
+
+    def _render_keep_list(self):
+        """Keep 목록 패널 갱신"""
+        for w in self.frm_keep_panel.winfo_children():
+            w.destroy()
+
+        if not self.keep_list:
+            ctk.CTkLabel(
+                self.frm_keep_panel,
+                text="Keep된 항목이 없습니다. 객체 카드의 [Keep ★] 버튼을 누르세요.",
+                font=ctk.CTkFont(size=11), text_color="#555555"
+            ).pack(pady=10)
+            return
+
+        for idx, item in enumerate(self.keep_list):
+            row = ctk.CTkFrame(self.frm_keep_panel, fg_color="#252525", corner_radius=4)
+            row.pack(fill="x", pady=2, padx=2)
+
+            ctk.CTkLabel(
+                row, text=f"  {{{item['var_name']}}}",
+                font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
+                text_color="#ffd54f", anchor="w"
+            ).pack(side="left", fill="x", expand=True)
+
+            if item.get("path"):
+                ctk.CTkLabel(
+                    row, text=item["path"][:30],
+                    font=ctk.CTkFont(size=10), text_color="#888888"
+                ).pack(side="left", padx=(0, 6))
+
+            def _rename(i=idx):
+                self._rename_keep_item(i)
+            ctk.CTkButton(
+                row, text="✏", width=28, height=22, font=ctk.CTkFont(size=11),
+                fg_color="#333333", hover_color="#444444", command=_rename
+            ).pack(side="right", padx=(2, 0))
+
+            def _del(i=idx):
+                self.keep_list.pop(i)
+                self._render_keep_list()
+                self._render_var_chips()
+            ctk.CTkButton(
+                row, text="✕", width=28, height=22, font=ctk.CTkFont(size=11),
+                fg_color="#5a2d2d", hover_color="#7a1a1a", command=_del
+            ).pack(side="right", padx=2)
+
+    def _rename_keep_item(self, idx: int):
+        """Keep 아이템 변수명 수정 팝업"""
+        item = self.keep_list[idx]
+        pop = ctk.CTkToplevel(self)
+        pop.title("변수명 수정")
+        pop.geometry("360x120")
+        pop.attributes("-topmost", True)
+        ctk.CTkLabel(pop, text="변수명:", font=ctk.CTkFont(size=12)).pack(pady=(14, 4))
+        ent = ctk.CTkEntry(pop, font=ctk.CTkFont(family="Consolas", size=13), width=280)
+        ent.insert(0, item["var_name"])
+        ent.pack()
+        def _apply():
+            new_name = ent.get().strip()
+            if new_name:
+                item["var_name"] = new_name
+                self._render_keep_list()
+                self._render_var_chips()
+            pop.destroy()
+        ctk.CTkButton(pop, text="적용", width=100, height=30, command=_apply).pack(pady=8)
+
+    def _clear_keep_list(self):
+        """Keep 목록 전체 삭제"""
+        self.keep_list.clear()
+        self._render_keep_list()
+        self._render_var_chips()
+
+    def _render_var_chips(self):
+        """요구사항 텍스트박스 아래 변수 삽입 칩 버튼 갱신"""
+        for w in self.frm_var_chips.winfo_children():
+            w.destroy()
+        for item in self.keep_list:
+            var = item["var_name"]
+            def _insert(v=var):
+                self._insert_var_token(v)
+            ctk.CTkButton(
+                self.frm_var_chips, text=f"{{{var}}}",
+                height=24, font=ctk.CTkFont(family="Consolas", size=11),
+                fg_color="#37474f", hover_color="#546e7a", command=_insert
+            ).pack(side="left", padx=2, pady=2)
+
+    def _insert_var_token(self, var_name: str):
+        """요구사항 텍스트박스 커서 위치에 {변수명} 삽입"""
+        try:
+            idx = self.txt_prompt.index("insert")
+        except Exception:
+            idx = "end"
+        self.txt_prompt.insert(idx, f"{{{var_name}}}")
+        self.txt_prompt.focus()
+
+    def _build_ai_prompt_with_keep(self, user_prompt: str) -> str:
+        """Keep 목록을 포함한 확장 프롬프트 생성"""
+        if not self.keep_list:
+            return user_prompt
+        lines = ["[고정 참조 객체]"]
+        for item in self.keep_list:
+            lines.append(f"  {{{item['var_name']}}} = selector: \"{item['selector']}\"")
+        lines.append("")
+        lines.append("[요구사항]")
+        lines.append(user_prompt)
+        lines.append("")
+        lines.append("위 [고정 참조 객체]의 변수명을 실제 셀렉터로 대응시켜 Playwright 코드를 작성하십시오.")
+        return "\n".join(lines)
+
 
     def _on_harvest_error(self, err_msg: str):
         self.btn_harvest_dom.configure(text="DOM 수집", state="normal")
@@ -1049,6 +1195,8 @@ class AIVisionFrame(ctk.CTkFrame):
         target_url = self.ent_target_url.get().strip() or self.cbo_windows.get()
         chosen_browser = "Chrome"
         catalog_summary = DOMHarvester.format_catalog_to_text(self.current_catalog)
+        # Keep 목록이 있으면 확장 프롬프트로 교체
+        prompt = self._build_ai_prompt_with_keep(prompt)
         engine_choice = self.seg_engine.get()
 
         self._save_all_configs()
