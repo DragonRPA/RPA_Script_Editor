@@ -82,38 +82,7 @@ class NeonDBManager:
                     CREATE INDEX IF NOT EXISTS idx_rpa_scripts_name ON rpa_scripts(name);
                 """)
 
-                # 2. 계약서 처리 이력 테이블
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS rpa_contract_logs (
-                        id SERIAL PRIMARY KEY,
-                        contract_no VARCHAR(100) NOT NULL,
-                        file_name VARCHAR(255),
-                        file_path TEXT,
-                        status VARCHAR(50) DEFAULT 'READY',
-                        ocr_data JSONB DEFAULT '{}'::jsonb,
-                        error_message TEXT,
-                        executed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        duration_ms INTEGER DEFAULT 0
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_rpa_contract_no ON rpa_contract_logs(contract_no);
-                    CREATE INDEX IF NOT EXISTS idx_rpa_status ON rpa_contract_logs(status);
-                """)
-
-                # 3. RPA 작업 배치 실행 이력 테이블
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS rpa_batch_runs (
-                        id SERIAL PRIMARY KEY,
-                        batch_id VARCHAR(100) UNIQUE NOT NULL,
-                        total_files INTEGER DEFAULT 0,
-                        success_count INTEGER DEFAULT 0,
-                        fail_count INTEGER DEFAULT 0,
-                        started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        finished_at TIMESTAMP WITH TIME ZONE,
-                        status VARCHAR(50) DEFAULT 'RUNNING'
-                    );
-                """)
-
-                # 4. 완성 봇 저장소 (rpa_bots)
+                # 2. 완성 봇 저장소 (rpa_bots)
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS rpa_bots (
                         id SERIAL PRIMARY KEY,
@@ -322,38 +291,6 @@ def robust_click(page, css_selector: str, uia_auto_id: str,
             )
             count += 1
         return count
-
-    # =========================================================================
-    # 실행 이력 (rpa_contract_logs)
-    # =========================================================================
-
-    def log_contract_result(self, contract_no: str, file_name: str, file_path: str,
-                            status: str, ocr_data: dict = None, error_message: str = None,
-                            duration_ms: int = 0) -> int:
-        """단일 계약서 처리 결과 DB 기록"""
-        conn = self.connect()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO rpa_contract_logs (
-                        contract_no, file_name, file_path, status,
-                        ocr_data, error_message, duration_ms
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id;
-                """, (
-                    contract_no,
-                    file_name,
-                    file_path,
-                    status,
-                    json.dumps(ocr_data or {}, ensure_ascii=False),
-                    error_message,
-                    duration_ms
-                ))
-                inserted_id = cur.fetchone()["id"]
-                conn.commit()
-                return inserted_id
-        finally:
-            conn.close()
 
     # =========================================================================
     # 완성 봇 (rpa_bots) CRUD
@@ -666,22 +603,41 @@ def robust_click(page, css_selector: str, uia_auto_id: str,
                           keep_type: str = "element", column_name: str = "",
                           data_type: str = "", source_file: str = "") -> int:
         """Keep 요소 저장 → element_id 반환.
+        동일 프로젝트 내 중복 var_name 또는 selector 존재 시 UPDATE (중복 방지)
         keep_type='element'     : DOM/UI 요소 (selector 사용)
         keep_type='data_column' : 데이터 파일 컬럼 (column_name 사용)
         """
         conn = self.connect()
         try:
             with conn.cursor() as cur:
+                # 동일 project_id 및 var_name 또는 selector 존재 여부 검사
                 cur.execute("""
-                    INSERT INTO rpa_keep_elements
-                        (project_id, target_id, var_name, label, selector, element_type, path,
-                         keep_type, column_name, data_type, source_file)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
-                """, (project_id, target_id, var_name, label, selector, element_type, path,
-                      keep_type, column_name, data_type, source_file))
-                eid = cur.fetchone()["id"]
-                conn.commit()
-                return eid
+                    SELECT id FROM rpa_keep_elements
+                    WHERE project_id = %s AND (var_name = %s OR (selector != '' AND selector = %s));
+                """, (project_id, var_name, selector))
+                row = cur.fetchone()
+                if row:
+                    eid = row["id"]
+                    cur.execute("""
+                        UPDATE rpa_keep_elements
+                        SET target_id = %s, label = %s, selector = %s, element_type = %s, path = %s,
+                            keep_type = %s, column_name = %s, data_type = %s, source_file = %s
+                        WHERE id = %s;
+                    """, (target_id, label, selector, element_type, path,
+                          keep_type, column_name, data_type, source_file, eid))
+                    conn.commit()
+                    return eid
+                else:
+                    cur.execute("""
+                        INSERT INTO rpa_keep_elements
+                            (project_id, target_id, var_name, label, selector, element_type, path,
+                             keep_type, column_name, data_type, source_file)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                    """, (project_id, target_id, var_name, label, selector, element_type, path,
+                          keep_type, column_name, data_type, source_file))
+                    eid = cur.fetchone()["id"]
+                    conn.commit()
+                    return eid
         finally:
             conn.close()
 
@@ -692,8 +648,10 @@ def robust_click(page, css_selector: str, uia_auto_id: str,
         try:
             with conn.cursor() as cur:
                 sql = """
-                    SELECT k.id, k.var_name, k.label, k.selector, k.element_type,
-                           k.path, k.target_id, t.label AS target_label, k.created_at
+                    SELECT k.id, k.project_id, k.target_id, k.var_name, k.label,
+                           k.selector, k.element_type, k.path, k.created_at,
+                           k.keep_type, k.column_name, k.data_type, k.source_file,
+                           t.label AS target_label
                     FROM rpa_keep_elements k
                     LEFT JOIN rpa_targets t ON t.id = k.target_id
                     WHERE k.project_id = %s

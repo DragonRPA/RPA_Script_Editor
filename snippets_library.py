@@ -690,8 +690,8 @@ cfg = ConfigManager()
 conn = psycopg2.connect(cfg.get("neon_database_url"))
 cur = conn.cursor()
 
-# 계약 조회 쿼리 예시
-cur.execute("SELECT contract_no, status, executed_at FROM rpa_contract_logs ORDER BY executed_at DESC LIMIT 10;")
+# 태스크 실행 이력 조회 쿼리 예시
+cur.execute("SELECT id, title, build_type, status, created_at FROM rpa_tasks ORDER BY id DESC LIMIT 10;")
 rows = cur.fetchall()
 for r in rows:
     print(r)
@@ -701,10 +701,9 @@ conn.close()
 """
         },
         {
-            "name": "RPA 배치 실행 요약 통계 저장 (rpa_batch_runs)",
-            "desc": "전체 작업 완료 시 배치 통계(총건수, 성공, 실패) 기록",
+            "name": "RPA 프로젝트 및 태스크 등록 (rpa_tasks)",
+            "desc": "RPA 태스크 생성 및 상태 업데이트 기록",
             "code": """import psycopg2
-import uuid
 from datetime import datetime
 from config_manager import ConfigManager
 
@@ -712,15 +711,16 @@ cfg = ConfigManager()
 conn = psycopg2.connect(cfg.get("neon_database_url"))
 cur = conn.cursor()
 
-batch_id = f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 cur.execute(\"\"\"
-    INSERT INTO rpa_batch_runs (batch_id, total_files, success_count, fail_count, finished_at, status)
-    VALUES (%s, %s, %s, %s, NOW(), 'COMPLETED')
-\"\"\", (batch_id, len(pdf_items), success_count, fail_count))
+    INSERT INTO rpa_tasks (project_id, title, prompt_text, build_type, status, created_at)
+    VALUES (%s, %s, %s, 'release', 'completed', NOW())
+    RETURNING id;
+\"\"\", (1, "거래처 데이터 수집 태스크", "자동화 프롬프트 내용"))
+task_id = cur.fetchone()[0]
 conn.commit()
 cur.close()
 conn.close()
-print(f"배치 실행 이력 저장 완료: {batch_id}")
+print(f"태스크 저장 완료: id={task_id}")
 """
         },
     ],

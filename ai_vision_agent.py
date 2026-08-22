@@ -327,8 +327,6 @@ class AIVisionFrame(ctk.CTkFrame):
             command=self._switch_project
         ).pack(side="right", padx=8)
 
-        self._update_project_bar()
-
         # 1. 상단 글로벌 컨트롤 바 (AI 설정 + 대상 URL/창)
         top_ctrl = ctk.CTkFrame(self, corner_radius=4)
         top_ctrl.grid(row=1, column=0, sticky="ew", padx=6, pady=(2, 1))
@@ -611,6 +609,8 @@ class AIVisionFrame(ctk.CTkFrame):
             fg_color="#444444", hover_color="#333333", font=ctk.CTkFont(size=11), command=self._copy_result
         )
         btn_copy.pack(side="right", padx=(4, 0))
+
+        self._update_project_bar()
 
     def _refresh_window_list(self):
         try:
@@ -998,10 +998,15 @@ class AIVisionFrame(ctk.CTkFrame):
         if not sel:
             return
         existing_idx = next(
-            (i for i, k in enumerate(self.keep_list) if k["selector"] == sel), -1
+            (i for i, k in enumerate(self.keep_list) if k.get("selector") == sel), -1
         )
         if existing_idx >= 0:
-            self.keep_list.pop(existing_idx)
+            removed = self.keep_list.pop(existing_idx)
+            if getattr(self, "db", None) and removed.get("id"):
+                try:
+                    self.db.delete_keep_element(removed["id"])
+                except Exception as e:
+                    print(f"DB Keep 삭제 에러: {e}")
         else:
             vname = self._make_var_name(itm)
             new_item = {
@@ -1009,7 +1014,8 @@ class AIVisionFrame(ctk.CTkFrame):
                 "label": itm.get("label") or itm.get("text") or "알수없음",
                 "selector": sel,
                 "element_type": itm.get("type") or "element",
-                "path": itm.get("path") or ""
+                "path": itm.get("path") or "",
+                "keep_type": "element"
             }
             if getattr(self, "db", None) and getattr(self, "current_project", None):
                 try:
@@ -1019,7 +1025,9 @@ class AIVisionFrame(ctk.CTkFrame):
                         var_name=vname,
                         keep_type="element",
                         selector=sel,
-                        element_type=itm.get("type") or "element"
+                        label=new_item["label"],
+                        element_type=itm.get("type") or "element",
+                        path=new_item["path"]
                     )
                     new_item["id"] = eid
                 except Exception as e:
@@ -1065,7 +1073,12 @@ class AIVisionFrame(ctk.CTkFrame):
             ).pack(side="right", padx=(2, 0))
 
             def _del(i=idx):
-                self.keep_list.pop(i)
+                removed = self.keep_list.pop(i)
+                if getattr(self, "db", None) and removed.get("id"):
+                    try:
+                        self.db.delete_keep_element(removed["id"])
+                    except Exception as e:
+                        print(f"DB Keep 삭제 에러: {e}")
                 self._render_keep_list()
                 self._render_var_chips()
             ctk.CTkButton(
@@ -1088,6 +1101,21 @@ class AIVisionFrame(ctk.CTkFrame):
             new_name = ent.get().strip()
             if new_name:
                 item["var_name"] = new_name
+                # DB 업데이트
+                if getattr(self, "db", None) and getattr(self, "current_project", None):
+                    try:
+                        self.db.save_keep_element(
+                            project_id=self.current_project["id"],
+                            target_id=item.get("target_id"),
+                            var_name=new_name,
+                            keep_type=item.get("keep_type", "element"),
+                            selector=item.get("selector", ""),
+                            label=item.get("label", ""),
+                            element_type=item.get("element_type", "element"),
+                            path=item.get("path", "")
+                        )
+                    except Exception as e:
+                        print(f"DB Keep 수정 에러: {e}")
                 self._render_keep_list()
                 self._render_var_chips()
             pop.destroy()
@@ -1095,6 +1123,12 @@ class AIVisionFrame(ctk.CTkFrame):
 
     def _clear_keep_list(self):
         """Keep 목록 전체 삭제"""
+        for itm in self.keep_list:
+            if getattr(self, "db", None) and itm.get("id"):
+                try:
+                    self.db.delete_keep_element(itm["id"])
+                except Exception:
+                    pass
         self.keep_list.clear()
         self._render_keep_list()
         self._render_var_chips()
@@ -1893,18 +1927,46 @@ class AIVisionFrame(ctk.CTkFrame):
         except Exception as e:
             print(f"[DB] 태스크 저장 실패: {e}")
 
+    def _load_project_keep_elements(self):
+        """DB에서 현재 프로젝트의 Keep 요소 목록 불러오기"""
+        if not self.db or not self.current_project:
+            return
+        try:
+            items = self.db.list_keep_elements(self.current_project["id"])
+            self.keep_list = []
+            for itm in items:
+                self.keep_list.append({
+                    "id": itm.get("id"),
+                    "var_name": itm.get("var_name"),
+                    "label": itm.get("label") or "",
+                    "selector": itm.get("selector") or "",
+                    "element_type": itm.get("element_type") or "element",
+                    "path": itm.get("path") or "",
+                    "keep_type": itm.get("keep_type") or "element",
+                    "column_name": itm.get("column_name") or "",
+                    "data_type": itm.get("data_type") or "",
+                    "source_file": itm.get("source_file") or ""
+                })
+            self._render_keep_list()
+            self._render_var_chips()
+            self._render_data_chips()
+        except Exception as e:
+            print(f"[DB] Keep 요소 불러오기 실패: {e}")
+
     def _update_project_bar(self):
-        """프로젝트 컨텍스트 바 라벨 갱신"""
+        """프로젝트 컨텍스트 바 라벨 및 DB 리소스(URL, Keep) 갱신"""
         try:
             if self.current_project:
                 self.lbl_proj_name.configure(
                     text=f"프로젝트: {self.current_project['name']}",
                     text_color="#4caf50"
                 )
+                self._refresh_target_urls()
+                self._load_project_keep_elements()
             else:
                 self.lbl_proj_name.configure(text="[오프라인]", text_color="#888888")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"프로젝트 바 갱신 오류: {e}")
 
     def _switch_project(self):
         """프로젝트 전환 - 시작 모달 재호출"""
