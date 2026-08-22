@@ -331,7 +331,8 @@ class AIVisionFrame(ctk.CTkFrame):
 
         # 좌우 분할을 위해 grid 사용 (더 깔끔한 정렬)
         top_ctrl.grid_columnconfigure(0, weight=0, minsize=420)
-        top_ctrl.grid_columnconfigure(1, weight=1)
+        top_ctrl.grid_columnconfigure(1, weight=0)
+        top_ctrl.grid_columnconfigure(2, weight=1)
         
         # --- 좌측: AI 설정 ---
         ai_frame = ctk.CTkFrame(top_ctrl, fg_color="transparent")
