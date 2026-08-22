@@ -1243,9 +1243,11 @@ class AIVisionFrame(ctk.CTkFrame):
             ("URL 일치 확인", "현재 페이지가 {var}인지 확인"),
         ],
         "input":    [
-            ("값 입력",     "{var}에 '{값}'을 입력"),
-            ("내용 지우기", "{var}의 내용을 지우기"),
-            ("현재 값 확인","{var}의 현재 값을 확인"),
+            ("값 입력",         "{var}에 '{값}'을 입력"),
+            ("내용 지우고 입력", "{var}의 내용을 지우고 '{값}'을 입력"),
+            ("내용 지우기",     "{var}의 내용을 지우기"),
+            ("Enter 키 입력",   "{var}에서 Enter 키를 누르기"),
+            ("현재 값 확인",    "{var}의 현재 입력값을 확인"),
         ],
         "textarea": [
             ("내용 입력",   "{var}에 '{내용}'을 입력"),
@@ -1288,8 +1290,37 @@ class AIVisionFrame(ctk.CTkFrame):
     }
 
     def _get_actions_for(self, element_type: str):
-        """element_type에 맞는 액션 목록 반환"""
-        t = (element_type or "").lower()
+        """element_type에 맞는 액션 목록 반환 (text, password, email 등 입력 타입 완벽 매핑)"""
+        t = (element_type or "").lower().strip()
+
+        # 1. 텍스트/패스워드/숫자 등 입력창 계열
+        if t in ("input", "text", "password", "number", "email", "tel", "search", "date") or "input" in t or "text" in t or "pass" in t:
+            return self._ELEM_ACTIONS["input"]
+
+        # 2. 텍스트 영역
+        if "textarea" in t:
+            return self._ELEM_ACTIONS["textarea"]
+
+        # 3. 버튼 계열
+        if "button" in t or "btn" in t or t in ("submit", "reset"):
+            return self._ELEM_ACTIONS["button"]
+
+        # 4. 드롭다운/셀렉트 계열
+        if "select" in t or "combo" in t or "dropdown" in t:
+            return self._ELEM_ACTIONS["select"]
+
+        # 5. 체크박스 / 라디오
+        if "check" in t or "radio" in t:
+            return self._ELEM_ACTIONS["checkbox"]
+
+        # 6. 링크
+        if "link" in t or t == "a":
+            return self._ELEM_ACTIONS["link"]
+
+        # 7. 테이블 / 그리드
+        if "table" in t or "grid" in t or "tr" in t or "td" in t:
+            return self._ELEM_ACTIONS["table"]
+
         for key in self._ELEM_ACTIONS:
             if key != "_default" and key in t:
                 return self._ELEM_ACTIONS[key]
