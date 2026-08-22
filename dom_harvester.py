@@ -55,32 +55,35 @@ class DOMHarvester:
         # ---------------------------------------------------------------------
         if HAS_UIA and (hwnd > 0 or window_title):
             try:
-                target_ctrl = None
-                if hwnd > 0:
-                    try:
-                        target_ctrl = uia.ControlFromHandle(hwnd)
-                    except Exception:
-                        target_ctrl = None
+                with uia.UIAutomationInitializerInThread():
+                    target_ctrl = None
+                    if hwnd > 0:
+                        try:
+                            target_ctrl = uia.ControlFromHandle(hwnd)
+                        except Exception:
+                            target_ctrl = None
 
-                if target_ctrl is None and window_title:
-                    clean_title = window_title.replace("[웹]", "").replace("[앱]", "").replace("[창]", "").strip()
-                    target_ctrl = uia.WindowControl(searchDepth=2, SubName=clean_title)
+                    if target_ctrl is None and window_title:
+                        clean_title = window_title.replace("[웹]", "").replace("[앱]", "").replace("[창]", "").strip()
+                        target_ctrl = uia.WindowControl(searchDepth=2, SubName=clean_title)
 
-                if target_ctrl and target_ctrl.Exists(maxSearchSeconds=1):
-                    catalog = cls._walk_uia_controls(target_ctrl)
-                    total_count = sum(len(v) for v in catalog.values())
-                    elapsed = round(time.time() - start_time, 2)
-                    return {
-                        "status": "success",
-                        "engine": "윈도우 창 직통 UIA 수집",
-                        "url": url or window_title,
-                        "title": target_ctrl.Name or window_title,
-                        "count": total_count,
-                        "catalog": catalog,
-                        "elapsed_sec": elapsed
-                    }
+                    if target_ctrl and target_ctrl.Exists(maxSearchSeconds=1):
+                        catalog = cls._walk_uia_controls(target_ctrl)
+                        total_count = sum(len(v) for v in catalog.values())
+                        if total_count > 0:
+                            elapsed = round(time.time() - start_time, 2)
+                            return {
+                                "status": "success",
+                                "engine": "윈도우 창 직통 UIA 수집",
+                                "url": url or window_title,
+                                "title": target_ctrl.Name or window_title,
+                                "count": total_count,
+                                "catalog": catalog,
+                                "elapsed_sec": elapsed
+                            }
             except Exception:
                 pass
+
 
         # ---------------------------------------------------------------------
         # [전략 2] 활성 Playwright 브라우저 페이지 세션 직통 수집 (새로고침 없음)
