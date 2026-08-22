@@ -553,15 +553,6 @@ class AIVisionFrame(ctk.CTkFrame):
         )
         self.btn_generate.pack(fill="x", padx=8, pady=(0, 6))
 
-        # 칩 변수 컨테이너를 생성 버튼 밑이나 위에 배치 (하지만 현재 프롬프트 상단 팝업이 더 좋음. 일단 보이지 않게 처리되거나 팝업에서 사용됨)
-        # Keep 칩은 _render_var_chips 에서 사용됨
-        chips_wrap = ctk.CTkFrame(col1_f, fg_color="transparent", height=0)
-        chips_wrap.pack(fill="x", padx=8)
-        self.frm_var_chips = ctk.CTkFrame(chips_wrap, fg_color="transparent", height=0)
-        self.frm_var_chips.pack(fill="x")
-        self.frm_data_chips = ctk.CTkFrame(chips_wrap, fg_color="transparent", height=0)
-        self.frm_data_chips.pack(fill="x")
-
 
         # =====================================================================
         # [열 2] 결과 패널 (생성 코드 에디터)
@@ -1066,6 +1057,39 @@ class AIVisionFrame(ctk.CTkFrame):
                 badge_prefix = ""
                 color_var = "#ffd54f"
 
+            # 1. 우측 액션 버튼들을 side="right"로 먼저 패킹 (버튼 잘림 방지)
+            def _del(i=idx):
+                removed = self.keep_list.pop(i)
+                if getattr(self, "db", None) and removed.get("id"):
+                    try:
+                        if removed.get("keep_type") == "target_url":
+                            self.db.delete_target(removed["id"])
+                            self._refresh_target_urls()
+                        else:
+                            self.db.delete_keep_element(removed["id"])
+                    except Exception as e:
+                        print(f"DB 삭제 에러: {e}")
+                self._render_keep_list()
+            ctk.CTkButton(
+                row, text="✕", width=26, height=22, font=ctk.CTkFont(size=11),
+                fg_color="#5a2d2d", hover_color="#7a1a1a", command=_del
+            ).pack(side="right", padx=(2, 4))
+
+            def _rename(i=idx):
+                self._rename_keep_item(i)
+            ctk.CTkButton(
+                row, text="✏", width=26, height=22, font=ctk.CTkFont(size=11),
+                fg_color="#333333", hover_color="#444444", command=_rename
+            ).pack(side="right", padx=2)
+
+            def _action_menu(it=item):
+                self._show_element_action_popup(it)
+            ctk.CTkButton(
+                row, text="조작 ▾", width=52, height=22, font=ctk.CTkFont(size=11),
+                fg_color="#1a3a5c", hover_color="#1f6aa5", command=_action_menu
+            ).pack(side="right", padx=2)
+
+            # 2. 좌측 변수명 및 설명 레이블 패킹
             lbl_var = ctk.CTkLabel(
                 row, text=f"  {badge_prefix}{{{vname}}}",
                 font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
@@ -1079,36 +1103,11 @@ class AIVisionFrame(ctk.CTkFrame):
 
             if item.get("path"):
                 lbl_path = ctk.CTkLabel(
-                    row, text=item["path"][:30],
+                    row, text=item["path"][:26],
                     font=ctk.CTkFont(size=11), text_color="#888888", cursor="hand2"
                 )
-                lbl_path.pack(side="left", padx=(0, 6))
+                lbl_path.pack(side="left", padx=(0, 4))
                 lbl_path.bind("<Double-Button-1>", lambda e, v=vname: self._on_keep_item_dblclick(v))
-
-            def _rename(i=idx):
-                self._rename_keep_item(i)
-            ctk.CTkButton(
-                row, text="✏", width=28, height=22, font=ctk.CTkFont(size=11),
-                fg_color="#333333", hover_color="#444444", command=_rename
-            ).pack(side="right", padx=(2, 0))
-
-            def _del(i=idx):
-                removed = self.keep_list.pop(i)
-                if getattr(self, "db", None) and removed.get("id"):
-                    try:
-                        if removed.get("keep_type") == "target_url":
-                            self.db.delete_target(removed["id"])
-                            self._refresh_target_urls()
-                        else:
-                            self.db.delete_keep_element(removed["id"])
-                    except Exception as e:
-                        print(f"DB 삭제 에러: {e}")
-                self._render_keep_list()
-                self._render_var_chips()
-            ctk.CTkButton(
-                row, text="✕", width=28, height=22, font=ctk.CTkFont(size=11),
-                fg_color="#5a2d2d", hover_color="#7a1a1a", command=_del
-            ).pack(side="right", padx=2)
 
     def _on_keep_item_dblclick(self, var_name: str):
         """Keep 아이템 더블클릭 시 프롬프트 에디터에 {var_name} 삽입 후 노란색 하이라이트"""
@@ -1297,27 +1296,49 @@ class AIVisionFrame(ctk.CTkFrame):
         return self._ELEM_ACTIONS["_default"]
 
     def _render_var_chips(self):
-        """요구사항 텍스트박스 아래 변수 삽입 칩 버튼 갱신"""
-        for w in self.frm_var_chips.winfo_children():
-            w.destroy()
-        for item in self.keep_list:
-            var = item["var_name"]
-            etype = item.get("element_type", "")
+        """하위 호환 유지 (칩 바 제거됨)"""
+        pass
 
-            def _open_menu(v=var, it=item, btn_ref=[None]):
-                self._show_action_popup(v, it)
+    def _render_data_chips(self):
+        """하위 호환 유지 (칩 바 제거됨)"""
+        pass
 
-            btn = ctk.CTkButton(
-                self.frm_var_chips, text=f"{{{var}}}",
-                height=24, font=ctk.CTkFont(family="Consolas", size=11),
-                fg_color="#37474f", hover_color="#546e7a",
-                command=_open_menu
-            )
-            btn.pack(side="left", padx=2, pady=2)
+    def _show_element_action_popup(self, item: dict):
+        """Keep 아이템의 타입에 따른 스마트 액션 팝업 표시 및 프롬프트 문장 자동 조립"""
+        var_name = item.get("var_name", "")
+        ktype = item.get("keep_type", "element")
 
-    def _show_action_popup(self, var_name: str, item: dict):
-        """요소 타입에 따른 액션 선택 팝업 표시"""
-        actions = self._get_actions_for(item.get("element_type", ""))
+        if ktype == "target_url":
+            actions = [
+                ("페이지 이동", "{var} 주소로 브라우저 이동"),
+                ("새 탭에서 열기", "새 탭을 열고 {var}로 접속"),
+                ("URL 일치 확인", "현재 페이지가 {var}인지 확인"),
+                ("단순 변수 삽입", "{var}")
+            ]
+            type_label = "URL"
+            header_color = "#29b6f6"
+        elif ktype == "data_column":
+            actions = [
+                ("요소에 입력", "{var} 값을 입력 대상에 입력"),
+                ("값 비교/검증", "{var} 값과 화면의 값을 비교"),
+                ("조건 분기", "{var} 값이 특정 조건이면"),
+                ("단순 변수 삽입", "{var}")
+            ]
+            type_label = f"Data ({item.get('data_type', 'str')})"
+            header_color = "#81c784"
+        elif ktype == "file_array":
+            actions = [
+                ("파일 순회 처리", "{var} 의 각 파일을 순서대로 처리"),
+                ("파일명 입력", "{var} 의 파일명을 입력창에 입력"),
+                ("파일 첨부/업로드", "{var} 의 파일을 첨부창에 업로드"),
+                ("단순 변수 삽입", "{var}")
+            ]
+            type_label = "Files Array"
+            header_color = "#ce93d8"
+        else:
+            actions = self._get_actions_for(item.get("element_type", ""))
+            type_label = item.get("element_type") or "DOM 요소"
+            header_color = "#ffd54f"
 
         pop = ctk.CTkToplevel(self)
         pop.overrideredirect(True)          # 제목 표시줄 없음 → 컨텍스트 메뉴 느낌
@@ -1326,21 +1347,20 @@ class AIVisionFrame(ctk.CTkFrame):
 
         # 팝업 위치: 마우스 커서 근방
         try:
-            x = self.winfo_pointerx()
-            y = self.winfo_pointery()
+            x = self.winfo_pointerx() - 10
+            y = self.winfo_pointery() + 5
         except Exception:
             x, y = 400, 400
         pop.geometry(f"+{x}+{y}")
 
         # 헤더: 요소 타입 표시
-        etype_disp = item.get("element_type") or "요소"
         hdr = ctk.CTkFrame(pop, fg_color="#111111", corner_radius=0)
         hdr.pack(fill="x")
         ctk.CTkLabel(
             hdr,
-            text=f"  {{{var_name}}}  ·  {etype_disp}",
+            text=f"  {{{var_name}}}  ·  {type_label}",
             font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
-            text_color="#ffd54f", anchor="w"
+            text_color=header_color, anchor="w"
         ).pack(side="left", padx=8, pady=6)
         ctk.CTkButton(
             hdr, text="✕", width=24, height=24, font=ctk.CTkFont(size=11),
@@ -1358,7 +1378,7 @@ class AIVisionFrame(ctk.CTkFrame):
 
             btn = ctk.CTkButton(
                 pop, text=f"  {label}",
-                anchor="w", height=32, font=ctk.CTkFont(size=12),
+                anchor="w", height=30, font=ctk.CTkFont(size=12),
                 fg_color="transparent", hover_color="#2a2a2a",
                 text_color="#dddddd", corner_radius=0,
                 command=_pick
@@ -1773,81 +1793,7 @@ class AIVisionFrame(ctk.CTkFrame):
             command=pop.destroy
         ).pack(side="right", padx=4)
 
-    def _render_data_chips(self):
-        """data_column Keep 항목의 칩 버튼 갱신"""
-        for w in self.frm_data_chips.winfo_children():
-            w.destroy()
 
-        data_items = [itm for itm in self.keep_list if itm.get("keep_type") == "data_column"]
-        if not data_items:
-            return
-
-        ctk.CTkLabel(
-            self.frm_data_chips, text="row›",
-            font=ctk.CTkFont(family="Consolas", size=11), text_color="#546e7a"
-        ).pack(side="left", padx=(0, 2))
-
-        for itm in data_items:
-            def _open(it=itm):
-                self._show_data_action_popup(it["column_name"], it)
-            ctk.CTkButton(
-                self.frm_data_chips,
-                text=f"{{{itm['var_name']}}}",
-                height=22, font=ctk.CTkFont(family="Consolas", size=11),
-                fg_color="#1a3a5c", hover_color="#1f6aa5",
-                command=_open
-            ).pack(side="left", padx=1, pady=1)
-
-    def _show_data_action_popup(self, col_name: str, item: dict = None):
-        """데이터 컬럼 변수의 활용 방법 팝업"""
-        var_name = item["var_name"] if item else f"row.{col_name}"
-        sample_val = ""
-        if self.data_source_sample:
-            v = self.data_source_sample[0].get(col_name, "")
-            sample_val = str(v)[:20]
-
-        actions = [
-            ("Keep 요소에 입력",   f"{{{var_name}}} 값을 입력 대상 요소에 입력"),
-            ("Keep 요소와 비교",   f"{{{var_name}}} 값과 화면의 값을 비교"),
-            ("조건 분기",          f"{{{var_name}}} 값이 특정 조건이면 처리 방식을 달리"),
-            ("직접 삽입",          f"{{{var_name}}}"),
-        ]
-
-        pop = ctk.CTkToplevel(self)
-        pop.overrideredirect(True)
-        pop.attributes("-topmost", True)
-        pop.configure(fg_color="#1e1e1e")
-        try:
-            x = self.winfo_pointerx()
-            y = self.winfo_pointery()
-        except Exception:
-            x, y = 400, 400
-        pop.geometry(f"+{x}+{y}")
-
-        hdr = ctk.CTkFrame(pop, fg_color="#0d2137", corner_radius=0)
-        hdr.pack(fill="x")
-        ctk.CTkLabel(hdr, text=f"  {var_name}",
-                     font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
-                     text_color="#64b5f6", anchor="w").pack(side="left", padx=8, pady=6)
-        if sample_val:
-            ctk.CTkLabel(hdr, text=f"예: {sample_val}",
-                         font=ctk.CTkFont(size=11), text_color="#888888").pack(side="left", padx=4)
-        ctk.CTkButton(hdr, text="✕", width=24, height=24, fg_color="transparent",
-                      hover_color="#333", command=pop.destroy).pack(side="right", padx=4)
-
-        for label, phrase in actions:
-            def _pick(ph=phrase, p=pop):
-                self._insert_phrase(ph)
-                p.destroy()
-            ctk.CTkButton(pop, text=f"  {label}", anchor="w", height=32,
-                          font=ctk.CTkFont(size=12), fg_color="transparent",
-                          hover_color="#2a2a2a", text_color="#dddddd",
-                          corner_radius=0, command=_pick).pack(fill="x")
-            ctk.CTkLabel(pop, text=f"    → {phrase}", anchor="w",
-                         font=ctk.CTkFont(size=11), text_color="#555555").pack(fill="x")
-
-        pop.bind("<FocusOut>", lambda e: pop.destroy())
-        pop.focus_set()
 
     def _build_ai_prompt_with_keep(self, user_prompt: str) -> str:
         """Keep 목록 + 데이터 소스를 포함한 확장 프롬프트 생성"""
