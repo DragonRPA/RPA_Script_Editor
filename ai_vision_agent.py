@@ -1003,6 +1003,8 @@ class AIVisionFrame(ctk.CTkFrame):
                 "selector": sel,
                 "element_type": itm.get("type") or "element",
                 "path": itm.get("path") or "",
+                "html": itm.get("html") or "",
+                "options": itm.get("options") or [],
                 "keep_type": "element"
             }
             if getattr(self, "db", None) and getattr(self, "current_project", None):
@@ -1367,9 +1369,32 @@ class AIVisionFrame(ctk.CTkFrame):
             type_label = "Files Array"
             header_color = "#ce93d8"
         else:
-            actions = self._get_actions_for(item.get("element_type", ""))
-            type_label = item.get("element_type") or "DOM 요소"
+            raw_etype = item.get("element_type", "")
+            etype = (raw_etype or "DOM 요소").lower()
+            type_label = raw_etype or "DOM 요소"
             header_color = "#ffd54f"
+
+            # 셀렉트/드롭다운인 경우 하위 <option> 목록을 동적으로 추출하여 실제 옵션 선택 메뉴 추가
+            if "select" in etype or "dropdown" in etype or "combo" in etype:
+                opts = list(item.get("options") or [])
+                if not opts and item.get("html"):
+                    try:
+                        raw_opts = re.findall(r"<option[^>]*>\s*([^<]+?)\s*</option>", item["html"], re.IGNORECASE)
+                        opts = [o.strip() for o in raw_opts if o.strip() and o.strip() not in ("선택", "선택하세요", "전체", "== 선택 ==")]
+                    except Exception:
+                        pass
+
+                if opts:
+                    actions = []
+                    for opt in opts[:10]:
+                        actions.append((f"선택: {opt}", f"{{{var_name}}}에서 '{opt}'을 선택"))
+                    actions.append(("직접 옵션 입력", f"{{{var_name}}}에서 '{{옵션}}'을 선택"))
+                    actions.append(("현재 값 확인", f"{{{var_name}}}의 현재 선택값을 확인"))
+                    actions.append(("전체 옵션 수집", f"{{{var_name}}}의 모든 옵션 목록을 수집"))
+                else:
+                    actions = self._get_actions_for(raw_etype)
+            else:
+                actions = self._get_actions_for(raw_etype)
 
         pop = ctk.CTkToplevel(self)
         pop.overrideredirect(True)          # 제목 표시줄 없음 → 컨텍스트 메뉴 느낌
@@ -1844,7 +1869,9 @@ class AIVisionFrame(ctk.CTkFrame):
             lines.append("[고정 참조 객체 - DOM/UI 요소]")
             for item in elem_items:
                 etype = item.get("element_type", "")
-                lines.append(f"  {{{item['var_name']}}} = selector: \"{item['selector']}\" | type: {etype}")
+                opts = item.get("options")
+                opt_str = f" | 선택옵션: {opts[:8]}" if opts else ""
+                lines.append(f"  {{{item['var_name']}}} = selector: \"{item['selector']}\" | type: {etype}{opt_str}")
             lines.append("")
 
         # ② 데이터 컬럼 Keep (data_column 타입)

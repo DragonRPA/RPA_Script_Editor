@@ -1,4 +1,4 @@
-﻿"""
+"""
 Universal RPA - Live Interactive DOM & Window UI Harvester
 
 전략 우선순위 (세션 보존 최우선):
@@ -385,7 +385,10 @@ class DOMHarvester:
                 if (isSelect) {
                     const disp = visibleLabel || id || name || '드롭다운';
                     let sel = id ? `#${id}` : (name ? `select[name='${name}']` : (visibleLabel ? `div.input-group:has-text('${visibleLabel}') select` : 'select'));
-                    catalog.selects.push({ label: disp, id, name, path: pathStr, html: elemHtml, selector: sel, playwrightCode: `page.locator("${sel}").select_option(label="선택")` }); count++;
+                    const opts = Array.from(el.querySelectorAll('option'))
+                        .map(o => (o.text || o.innerText || o.value || '').trim())
+                        .filter(t => t && t.length < 35 && !['선택', '선택하세요', '전체', '== 선택 =='].includes(t));
+                    catalog.selects.push({ label: disp, id, name, type: 'select', path: pathStr, html: elemHtml, selector: sel, options: opts.slice(0, 15), playwrightCode: `page.locator("${sel}").select_option(label="선택")` }); count++;
                 } else if (type === 'checkbox' || type === 'radio' || el.getAttribute('role') === 'checkbox' || el.getAttribute('role') === 'radio') {
                     const disp = visibleLabel || text || id || name || '체크박스';
                     let sel = id ? `#${id}` : (name ? `input[name='${name}']` : (visibleLabel ? `label:has-text('${visibleLabel}') input` : `input[type='${type}']`));
