@@ -410,9 +410,13 @@ class AIVisionFrame(ctk.CTkFrame):
         t_row2 = ctk.CTkFrame(tgt_frame, fg_color="transparent")
         t_row2.pack(fill="x", pady=2)
         ctk.CTkLabel(t_row2, text="대상 URL:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=2)
-        self.ent_target_url = ctk.CTkEntry(t_row2, height=26, font=ctk.CTkFont(size=11), placeholder_text="예: http://175.119.156.105...")
-        self.ent_target_url.pack(side="left", fill="x", expand=True, padx=4)
-        self.ent_target_url.bind("<FocusOut>", lambda e: self._save_all_configs())
+        self.cbo_target_url = ctk.CTkComboBox(t_row2, height=26, font=ctk.CTkFont(size=11), values=[])
+        self.cbo_target_url.pack(side="left", fill="x", expand=True, padx=4)
+        # 콤보박스는 FocusOut 대신 선택 시 저장되게 하거나 그냥 두어도 됩니다.
+        
+        btn_save_url = ctk.CTkButton(t_row2, text="저장", width=45, height=26, font=ctk.CTkFont(size=11), fg_color="#333333", command=self._save_target_url)
+        btn_save_url.pack(side="left", padx=(0, 4))
+        
         self.btn_harvest_dom = ctk.CTkButton(t_row2, text="DOM 수집", width=70, height=26, fg_color="#1f6aa5", font=ctk.CTkFont(size=11, weight="bold"), command=self._start_harvest_dom)
         self.btn_harvest_dom.pack(side="right")
 
@@ -637,6 +641,7 @@ class AIVisionFrame(ctk.CTkFrame):
             self.f_ollama.pack(fill="x")
             self._refresh_ollama_models()
         self._save_all_configs()
+        self._refresh_target_urls()
 
     def _refresh_ollama_models(self):
         url = self.ent_ollama_url.get().strip() or "http://localhost:11434"
@@ -652,7 +657,7 @@ class AIVisionFrame(ctk.CTkFrame):
     # [실시간 DOM/UIA 수집 - 깜빡임 0%, 세션 100% 보존]
     # =========================================================================
     def _start_harvest_dom(self):
-        url = self.ent_target_url.get().strip()
+        url = self.cbo_target_url.get().strip()
         selected_win_title = self.cbo_windows.get()
         chosen_browser = "Chrome"
 
@@ -668,6 +673,7 @@ class AIVisionFrame(ctk.CTkFrame):
             return
 
         self._save_all_configs()
+        self._refresh_target_urls()
         self.btn_harvest_dom.configure(text="수집 중...", state="disabled")
         self.lbl_dom_status.configure(text="객체 수집 중...", text_color="#ffb74d")
 
@@ -1724,7 +1730,7 @@ class AIVisionFrame(ctk.CTkFrame):
             messagebox.showwarning("입력 확인", "자동화 요구사항을 입력하십시오.")
             return
 
-        target_url = self.ent_target_url.get().strip() or self.cbo_windows.get()
+        target_url = self.cbo_target_url.get().strip() or self.cbo_windows.get()
         chosen_browser = "Chrome"
         catalog_summary = DOMHarvester.format_catalog_to_text(self.current_catalog)
         # Keep 목록이 있으면 확장 프롬프트로 교체
@@ -1732,6 +1738,7 @@ class AIVisionFrame(ctk.CTkFrame):
         engine_choice = self.seg_engine.get()
 
         self._save_all_configs()
+        self._refresh_target_urls()
 
         if "Gemini" in engine_choice:
             api_key = self.ent_api_key.get().strip()
@@ -1966,6 +1973,46 @@ class AIVisionFrame(ctk.CTkFrame):
     # =========================================================================
     # 설정 자동 저장
     # =========================================================================
+    def _refresh_target_urls(self):
+        if not self.db or not self.current_project:
+            return
+        try:
+            targets = self.db.list_targets(self.current_project["id"])
+            urls = [t["value"] for t in targets if t.get("type") == "url"]
+            self.cbo_target_url.configure(values=urls)
+        except Exception as e:
+            print(f"Failed to load targets: {e}")
+
+    def _save_target_url(self):
+        if not self.db or not self.current_project:
+            from tkinter import messagebox
+            messagebox.showerror("오류", "프로젝트 DB가 연결되지 않았습니다.")
+            return
+            
+        url = self.cbo_target_url.get().strip()
+        if not url:
+            return
+            
+        try:
+            targets = self.db.list_targets(self.current_project["id"])
+            urls = [t["value"] for t in targets if t.get("type") == "url"]
+            if url not in urls:
+                self.db.add_target(
+                    project_id=self.current_project["id"],
+                    label=url,
+                    value=url,
+                    type_="url"
+                )
+                self._refresh_target_urls()
+                from tkinter import messagebox
+                messagebox.showinfo("URL 저장", "현재 URL이 프로젝트 대상 목록에 저장되었습니다.")
+            else:
+                from tkinter import messagebox
+                messagebox.showinfo("URL 저장", "이미 저장된 URL입니다.")
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("오류", f"URL 저장 실패: {e}")
+
     def _load_saved_configs(self):
         k = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
         ollama_u = "http://localhost:11434"
@@ -1997,8 +2044,8 @@ class AIVisionFrame(ctk.CTkFrame):
             self.ent_ollama_url.delete(0, "end")
             self.ent_ollama_url.insert(0, ollama_u)
         if target_u:
-            self.ent_target_url.delete(0, "end")
-            self.ent_target_url.insert(0, target_u)
+            self.cbo_target_url.delete(0, "end")
+            self.cbo_target_url.insert(0, target_u)
 
         if "Ollama" in last_engine:
             self.seg_engine.set("Local Ollama")
@@ -2014,11 +2061,13 @@ class AIVisionFrame(ctk.CTkFrame):
             self.cbo_ollama_model.set(last_ollama_model)
 
 
+        self._refresh_target_urls()
+
     def _save_all_configs(self):
         data_to_save = {
             "gemini_api_key": self.ent_api_key.get().strip(),
             "ollama_url": self.ent_ollama_url.get().strip(),
-            "target_url": self.ent_target_url.get().strip(),
+            "target_url": self.cbo_target_url.get().strip(),
             "last_ai_engine": self.seg_engine.get(),
             "last_gemini_model": self.cbo_gemini_model.get(),
             "last_ollama_model": self.cbo_ollama_model.get()
