@@ -843,24 +843,78 @@ def robust_click(page, css_selector: str, uia_auto_id: str,
         finally:
             conn.close()
 
+    def save_draft_task(self, project_id: int, title: str, prompt_text: str,
+                        task_id: Optional[int] = None, build_type: str = "debug") -> int:
+        """프롬프트 중간 임시저장 (draft) - task_id가 있으면 UPDATE, 없으면 INSERT/UPSERT"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                if task_id:
+                    cur.execute("""
+                        UPDATE rpa_tasks
+                        SET title = %s, prompt_text = %s, build_type = %s, updated_at = NOW()
+                        WHERE id = %s RETURNING id;
+                    """, (title, prompt_text, build_type, task_id))
+                    row = cur.fetchone()
+                    if row:
+                        conn.commit()
+                        return row["id"]
+
+                # 동일 project_id 및 title의 draft 태스크가 있는지 확인
+                cur.execute("""
+                    SELECT id FROM rpa_tasks WHERE project_id = %s AND title = %s;
+                """, (project_id, title))
+                existing = cur.fetchone()
+                if existing:
+                    cur.execute("""
+                        UPDATE rpa_tasks
+                        SET prompt_text = %s, build_type = %s, updated_at = NOW()
+                        WHERE id = %s RETURNING id;
+                    """, (prompt_text, build_type, existing["id"]))
+                    tid = existing["id"]
+                    conn.commit()
+                    return tid
+                else:
+                    cur.execute("""
+                        INSERT INTO rpa_tasks (project_id, title, prompt_text, build_type, status)
+                        VALUES (%s, %s, %s, %s, 'draft') RETURNING id;
+                    """, (project_id, title, prompt_text, build_type))
+                    tid = cur.fetchone()["id"]
+                    conn.commit()
+                    return tid
+        finally:
+            conn.close()
+
     def list_tasks(self, project_id: int,
                    status: Optional[str] = None) -> List[Dict[str, Any]]:
-        """프로젝트의 태스크 목록"""
+        """프로젝트의 태스크 목록 (프롬프트 텍스트, 코드 포함)"""
         conn = self.connect()
         try:
             with conn.cursor() as cur:
                 sql = """
-                    SELECT id, title, build_type, version_tag, status,
-                           ai_engine, ai_model, generated_at, created_at
+                    SELECT id, title, prompt_text, script_code, build_type, version_tag, status,
+                           ai_engine, ai_model, generated_at, created_at, updated_at
                     FROM rpa_tasks WHERE project_id = %s
                 """
                 params: list = [project_id]
                 if status:
                     sql += " AND status = %s"
                     params.append(status)
-                sql += " ORDER BY id DESC;"
+                sql += " ORDER BY updated_at DESC, id DESC;"
                 cur.execute(sql, tuple(params))
                 return [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def delete_task(self, task_id: int) -> bool:
+        """태스크 삭제"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM rpa_tasks WHERE id = %s RETURNING id;", (task_id,))
+                deleted = cur.fetchone() is not None
+                conn.commit()
+                return deleted
         finally:
             conn.close()
 

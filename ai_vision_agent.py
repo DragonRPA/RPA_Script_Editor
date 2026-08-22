@@ -312,6 +312,7 @@ class AIVisionFrame(ctk.CTkFrame):
         self.data_source_columns: List[str] = []   # 컬럼명 목록
         self.data_source_row_count: int = 0
         self.data_source_sample: List[Dict] = []   # 5행 샘플
+        self.current_task_id: Optional[int] = None
 
         self._build_ui()
         self._load_saved_configs()
@@ -532,7 +533,22 @@ class AIVisionFrame(ctk.CTkFrame):
         s3_head = ctk.CTkFrame(col1_f, fg_color="transparent")
         s3_head.pack(fill="x", padx=8, pady=(4, 2))
         ctk.CTkLabel(s3_head, text="자동화 요구사항", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
-        ctk.CTkLabel(s3_head, text="Keep 더블클릭 시 변수 삽입", font=ctk.CTkFont(size=11), text_color="#ffd54f").pack(side="right")
+
+        self.btn_load_task = ctk.CTkButton(
+            s3_head, text="불러오기 ▾", width=76, height=22,
+            font=ctk.CTkFont(size=11), fg_color="#2b2b2b", hover_color="#3a3a3a",
+            command=self._show_load_task_popup
+        )
+        self.btn_load_task.pack(side="right", padx=(4, 0))
+
+        self.btn_save_task = ctk.CTkButton(
+            s3_head, text="저장", width=52, height=22,
+            font=ctk.CTkFont(size=11, weight="bold"), fg_color="#1b5e20", hover_color="#2e7d32",
+            command=self._save_prompt_draft
+        )
+        self.btn_save_task.pack(side="right", padx=(4, 0))
+
+        ctk.CTkLabel(s3_head, text="Keep 더블클릭 시 변수 삽입", font=ctk.CTkFont(size=10), text_color="#ffd54f").pack(side="right", padx=(0, 6))
 
         # 프롬프트 입력창 (직접 배치하여 수직 공간 최대화)
         self.txt_prompt = ctk.CTkTextbox(col1_f, font=ctk.CTkFont(size=12))
@@ -2142,6 +2158,140 @@ class AIVisionFrame(ctk.CTkFrame):
         ]
         return "\n".join(lines)
 
+    def _save_prompt_draft(self):
+        """작성 중인 자연어 프롬프트와 태스크 정보를 DB에 임시저장 (draft)"""
+        prompt = self.txt_prompt.get("1.0", "end").strip()
+        if not prompt:
+            messagebox.showinfo("저장 안내", "저장할 프롬프트 내용이 없습니다.")
+            return
+
+        title = self.ent_task_title.get().strip()
+        if not title:
+            # 첫 번째 줄에서 제목 자동 추출
+            first_line = prompt.splitlines()[0][:30].strip()
+            title = first_line or f"태스크_{int(time.time())}"
+            self.ent_task_title.delete(0, "end")
+            self.ent_task_title.insert(0, title)
+
+        if not self.db or not self.current_project:
+            messagebox.showinfo("저장 완료", "프로젝트가 연결되지 않아 로컬 세션에 임시 보관되었습니다.")
+            return
+
+        try:
+            pid = self.current_project["id"]
+            tid = getattr(self, "current_task_id", None)
+            btype = self.var_build_type.get()
+            new_tid = self.db.save_draft_task(
+                project_id=pid,
+                title=title,
+                prompt_text=prompt,
+                task_id=tid,
+                build_type=btype
+            )
+            self.current_task_id = new_tid
+            self.db.touch_project(pid)
+
+            # 저장 완료 시각적 피드백
+            orig_text = self.btn_save_task.cget("text")
+            orig_color = self.btn_save_task.cget("fg_color")
+            self.btn_save_task.configure(text="저장됨 ✓", fg_color="#2e7d32")
+            self.after(1500, lambda: self.btn_save_task.configure(text=orig_text, fg_color=orig_color))
+        except Exception as e:
+            messagebox.showerror("저장 오류", f"태스크 저장 중 오류 발생:\n{e}")
+
+    def _show_load_task_popup(self):
+        """저장된 태스크/프롬프트 목록 조회 및 불러오기 팝업"""
+        if not self.db or not self.current_project:
+            messagebox.showwarning("불러오기", "먼저 프로젝트를 선택하거나 연결하십시오.")
+            return
+
+        pid = self.current_project["id"]
+        tasks = self.db.list_tasks(pid)
+        if not tasks:
+            messagebox.showinfo("불러오기", f"'{self.current_project['name']}' 프로젝트에 저장된 태스크가 없습니다.")
+            return
+
+        pop = ctk.CTkToplevel(self)
+        pop.title("태스크 및 프롬프트 불러오기")
+        pop.geometry("580x440")
+        pop.attributes("-topmost", True)
+
+        # 상단 헤더
+        top_f = ctk.CTkFrame(pop, fg_color="transparent")
+        top_f.pack(fill="x", padx=16, pady=(14, 6))
+        ctk.CTkLabel(
+            top_f, text=f"저장된 태스크 목록 ({len(tasks)}개)",
+            font=ctk.CTkFont(size=13, weight="bold")
+        ).pack(side="left")
+        ctk.CTkLabel(
+            top_f, text=f"프로젝트: {self.current_project['name']}",
+            font=ctk.CTkFont(size=11), text_color="#aaaaaa"
+        ).pack(side="right")
+
+        # 스크롤 목록
+        scr = ctk.CTkScrollableFrame(pop, fg_color="#181818", corner_radius=6)
+        scr.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+
+        def _load_selected(t):
+            self.txt_prompt.delete("1.0", "end")
+            self.txt_prompt.insert("1.0", t.get("prompt_text", ""))
+            self.ent_task_title.delete(0, "end")
+            self.ent_task_title.insert(0, t.get("title", ""))
+            if t.get("script_code"):
+                self.txt_result_code.delete("1.0", "end")
+                self.txt_result_code.insert("1.0", t["script_code"])
+            self.var_build_type.set(t.get("build_type", "debug"))
+            self.current_task_id = t["id"]
+            self._highlight_keep_tokens()
+            pop.destroy()
+
+        def _delete_selected(tid, row_frame):
+            if messagebox.askyesno("삭제 확인", "이 태스크를 정말 삭제하시겠습니까?"):
+                self.db.delete_task(tid)
+                row_frame.destroy()
+                if getattr(self, "current_task_id", None) == tid:
+                    self.current_task_id = None
+
+        for t in tasks:
+            row = ctk.CTkFrame(scr, fg_color="#222222", corner_radius=6)
+            row.pack(fill="x", pady=4, padx=2)
+
+            r_top = ctk.CTkFrame(row, fg_color="transparent")
+            r_top.pack(fill="x", padx=8, pady=(6, 2))
+
+            status = t.get("status", "draft")
+            badge_color = "#1565c0" if status == "generated" else "#f57f17"
+            badge_text = "코드완료" if status == "generated" else "임시저장"
+            ctk.CTkLabel(
+                r_top, text=f"[{badge_text}]", font=ctk.CTkFont(size=11, weight="bold"),
+                text_color=badge_color
+            ).pack(side="left", padx=(0, 6))
+
+            ctk.CTkLabel(
+                r_top, text=t.get("title", "무제 태스크"), font=ctk.CTkFont(size=12, weight="bold")
+            ).pack(side="left")
+
+            btn_del = ctk.CTkButton(
+                r_top, text="삭제", width=46, height=24,
+                fg_color="#b71c1c", hover_color="#c62828", font=ctk.CTkFont(size=11),
+                command=lambda tid=t["id"], rf=row: _delete_selected(tid, rf)
+            )
+            btn_del.pack(side="right", padx=(4, 0))
+
+            btn_apply = ctk.CTkButton(
+                r_top, text="불러오기", width=68, height=24,
+                fg_color="#00695c", hover_color="#00796b", font=ctk.CTkFont(size=11, weight="bold"),
+                command=lambda task=t: _load_selected(task)
+            )
+            btn_apply.pack(side="right")
+
+            p_text = t.get("prompt_text", "").replace("\n", " ")[:90]
+            if p_text:
+                ctk.CTkLabel(
+                    row, text=f"💬 {p_text}...", font=ctk.CTkFont(size=11),
+                    text_color="#888888", anchor="w"
+                ).pack(fill="x", padx=10, pady=(0, 6))
+
     def _save_task_to_db(self, fp: dict, code: str):
         """생성된 태스크를 DB에 저장 (프로젝트 연결 시)"""
         if not self.db or not self.current_project:
@@ -2163,8 +2313,9 @@ class AIVisionFrame(ctk.CTkFrame):
                 sys_python=fp["sys_python"],
                 sys_user=fp["sys_user"],
                 sys_playwright=fp["sys_playwright"],
-                status="draft"
+                status="generated"
             )
+            self.current_task_id = task_id
             self.db.touch_project(pid)
             print(f"[DB] 태스크 저장 완료 task_id={task_id}")
         except Exception as e:
