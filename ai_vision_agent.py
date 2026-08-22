@@ -687,18 +687,29 @@ class AIVisionFrame(ctk.CTkFrame):
 
     def _render_element_card(self, parent_frame, itm: Dict[str, Any], icon: str = ""):
         name = itm.get("label") or itm.get("text") or itm.get("type") or "요소"
+        path = itm.get("path") or ""
+        raw_html = itm.get("html") or ""
         sel = itm.get("selector") or ""
         code = itm.get("playwrightCode") or ""
 
         card = ctk.CTkFrame(parent_frame, corner_radius=6, fg_color="#2b2b2b")
-        card.pack(fill="x", pady=2, padx=2)
+        card.pack(fill="x", pady=3, padx=2)
 
+        # 1행: 아이콘 + 라벨명 + [HTML 보기] + [선택]
         top_r = ctk.CTkFrame(card, fg_color="transparent")
-        top_r.pack(fill="x", padx=8, pady=(4, 2))
+        top_r.pack(fill="x", padx=8, pady=(5, 2))
 
         ctk.CTkLabel(
             top_r, text=f"{icon} {name}", font=ctk.CTkFont(size=12, weight="bold"), text_color="#ffffff", anchor="w"
         ).pack(side="left", fill="x", expand=True)
+
+        if raw_html:
+            btn_html = ctk.CTkButton(
+                top_r, text="HTML 보기", width=75, height=26, font=ctk.CTkFont(size=11),
+                fg_color="#444444", hover_color="#333333",
+                command=lambda: self._show_element_html(name, raw_html, sel)
+            )
+            btn_html.pack(side="right", padx=(4, 2))
 
         btn_pick = ctk.CTkButton(
             top_r, text="선택", width=55, height=26, font=ctk.CTkFont(size=12, weight="bold"),
@@ -707,12 +718,51 @@ class AIVisionFrame(ctk.CTkFrame):
         )
         btn_pick.pack(side="right", padx=2)
 
+        # 2행: 3~4단계 상위 조상 계층 텍스트 경로 (존재 시)
+        if path and path != name:
+            mid_r = ctk.CTkFrame(card, fg_color="transparent")
+            mid_r.pack(fill="x", padx=8, pady=(0, 2))
+            ctk.CTkLabel(
+                mid_r, text=f"경로: {path}", font=ctk.CTkFont(size=11), text_color="#b0bec5", anchor="w"
+            ).pack(side="left", fill="x", expand=True)
+
+        # 3행: 추천 셀렉터
         bot_r = ctk.CTkFrame(card, fg_color="transparent")
-        bot_r.pack(fill="x", padx=8, pady=(0, 4))
+        bot_r.pack(fill="x", padx=8, pady=(0, 5))
 
         ctk.CTkLabel(
             bot_r, text=f"셀렉터: {sel}", font=ctk.CTkFont(family="Consolas", size=12), text_color="#64b5f6", anchor="w"
         ).pack(side="left", fill="x", expand=True)
+
+    def _show_element_html(self, name: str, raw_html: str, sel: str):
+        """요소의 실제 HTML 코드 및 세부 속성을 팝업으로 표출"""
+        pop = ctk.CTkToplevel(self)
+        pop.title(f"HTML 상세 - {name}")
+        pop.geometry("680x420")
+        pop.attributes("-topmost", True)
+
+        head = ctk.CTkFrame(pop, fg_color="transparent")
+        head.pack(fill="x", padx=12, pady=(10, 4))
+        ctk.CTkLabel(head, text=f"요소: {name}", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+
+        sel_bar = ctk.CTkFrame(pop, fg_color="transparent")
+        sel_bar.pack(fill="x", padx=12, pady=2)
+        ctk.CTkLabel(sel_bar, text=f"셀렉터: {sel}", font=ctk.CTkFont(family="Consolas", size=12), text_color="#64b5f6").pack(side="left")
+
+        txt_box = ctk.CTkTextbox(pop, font=ctk.CTkFont(family="Consolas", size=12), fg_color="#181818")
+        txt_box.pack(fill="both", expand=True, padx=12, pady=8)
+        txt_box.insert("1.0", raw_html)
+
+        btn_bar = ctk.CTkFrame(pop, fg_color="transparent")
+        btn_bar.pack(fill="x", padx=12, pady=(0, 10))
+
+        def _copy():
+            self.clipboard_clear()
+            self.clipboard_append(raw_html)
+            messagebox.showinfo("복사 완료", "HTML 코드가 클립보드에 복사되었습니다.")
+
+        ctk.CTkButton(btn_bar, text="HTML 복사", width=100, height=32, font=ctk.CTkFont(size=12), fg_color="#1f6aa5", command=_copy).pack(side="left")
+        ctk.CTkButton(btn_bar, text="닫기", width=80, height=32, font=ctk.CTkFont(size=12), fg_color="#444444", command=pop.destroy).pack(side="right")
 
     def _select_element(self, name: str, sel: str, code: str):
         self.lbl_selected_sel.delete(0, "end")
@@ -734,6 +784,7 @@ class AIVisionFrame(ctk.CTkFrame):
         self.btn_harvest_dom.configure(text="DOM 수집", state="normal")
         self.lbl_dom_status.configure(text="DOM 수집 실패", text_color="#e57373")
         messagebox.showerror("DOM 수집 오류", f"수집 실패:\n{err_msg}")
+
 
     # =========================================================================
     # [섹션 1] 이미지
