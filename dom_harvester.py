@@ -1,9 +1,12 @@
 """
 Universal RPA - Live Interactive DOM & Window UI Harvester
-- 웹 URL이 있을 때 실제 브라우저 엔진(Playwright/CDP)으로 100% 무결점 HTML DOM 추출
-- 데스크톱 네이티브 앱 창일 때 윈도우 UIA COM 트리 추출
-- 3~4단계 상위 조상 텍스트 계층(Hierarchy) 및 실제 outerHTML 조각 전수 보존
-- [HTML 보기] 및 계층 텍스트 상세 노출 지원
+
+전략 우선순위 (로그인 세션 보존 원칙):
+  1. HWND 창 직통 UIA 수집 — 이미 로그인된 사용자 창 (세션 100% 보존)
+  2. 활성 Playwright 페이지 세션 (set_active_page로 등록된 경우)
+  3. URL 헤드리스(headless) — 창 없이 URL만 있을 때만, 공개 페이지 전용
+     ⚠️ 창(HWND)과 URL이 동시에 있으면 3번은 절대 실행하지 않음
+        → 세션 없는 새 브라우저가 열려 /login 으로 리다이렉트되는 근본 원인 차단
 """
 
 import os
@@ -33,7 +36,7 @@ except ImportError:
 
 
 class DOMHarvester:
-    """실시간 UI/DOM 객체 수집기 (HTML 조각 보존 및 3~4단계 계층 경로 매핑)"""
+    """실시간 UI/DOM 객체 수집기"""
 
     _active_playwright_page = None
 
@@ -42,82 +45,27 @@ class DOMHarvester:
         cls._active_playwright_page = page
 
     @classmethod
-    def harvest_live_dom(cls, url: str = "", hwnd: int = 0, window_title: str = "", browser_type: str = "chrome", timeout_sec: int = 15) -> Dict[str, Any]:
+    def harvest_live_dom(
+        cls,
+        url: str = "",
+        hwnd: int = 0,
+        window_title: str = "",
+        browser_type: str = "chrome",
+        timeout_sec: int = 15
+    ) -> Dict[str, Any]:
         """
-        1. 웹 URL이 입력되었거나 웹 브라우저 창인 경우: 실제 브라우저 엔진으로 진정한 HTML DOM 및 <select>, input-group, outerHTML 추출
-        2. 데스크톱 네이티브 앱(ERP, Excel 등)인 경우: Windows UIA COM 트리로 네이티브 컨트롤 추출
+        전략 우선순위:
+        1. HWND 창 직통 UIA 수집 (사용자가 선택한 창, 세션 100% 보존)
+        2. 활성 Playwright 페이지 세션
+        3. URL 헤드리스 — 창이 없을 때만, 로그인 없는 공개 페이지 전용
+           ⚠️ 창+URL 동시 → 헤드리스 실행 금지 (로그인 리다이렉트 방지)
         """
         start_time = time.time()
-        is_web_target = bool(url) or ("[웹]" in window_title) or any(b in window_title.lower() for b in ["chrome", "edge", "whale", "firefox"])
 
-        # ---------------------------------------------------------------------
-        # [전략 1: 웹 최우선] 활성 Playwright 페이지 세션 직통 수집
-        # ---------------------------------------------------------------------
-        if cls._active_playwright_page is not None:
-            try:
-                cur_page = cls._active_playwright_page
-                extracted = cur_page.evaluate(cls._get_js_extractor())
-                elapsed = round(time.time() - start_time, 2)
-                return {
-                    "status": "success",
-                    "engine": "활성 브라우저 직통 수집",
-                    "url": extracted.get("url", url),
-                    "title": extracted.get("title", ""),
-                    "count": extracted.get("totalCount", 0),
-                    "catalog": extracted.get("catalog", {}),
-                    "elapsed_sec": elapsed
-                }
-            except Exception:
-                pass
-
-        # ---------------------------------------------------------------------
-        # [전략 2: 웹 타겟] 지정 브라우저 엔진(Chrome/Edge) 실제 DOM 추출 (Select, HTML 전수 파싱)
-        # ---------------------------------------------------------------------
-        if HAS_PLAYWRIGHT and url:
-            target_u = url
-            if not target_u.startswith("http://") and not target_u.startswith("https://"):
-                target_u = "http://" + target_u
-            try:
-                with sync_playwright() as p:
-                    launch_kwargs = {"headless": True}
-                    b_low = (browser_type or "").lower()
-                    if "chrome" in b_low:
-                        launch_kwargs["channel"] = "chrome"
-                    elif "edge" in b_low or "msedge" in b_low:
-                        launch_kwargs["channel"] = "msedge"
-
-                    try:
-                        browser = p.chromium.launch(**launch_kwargs)
-                    except Exception:
-                        browser = p.chromium.launch(headless=True)
-
-                    context = browser.new_context(viewport={"width": 1920, "height": 1080})
-                    page = context.new_page()
-
-                    page.goto(target_u, timeout=timeout_sec * 1000)
-                    page.wait_for_load_state("domcontentloaded")
-                    time.sleep(2.0)  # React/Vue/AG-Grid 동적 렌더링 완료 대기
-
-                    extracted = page.evaluate(cls._get_js_extractor())
-                    browser.close()
-
-                    elapsed = round(time.time() - start_time, 2)
-                    b_name = browser_type.upper() if browser_type else "웹"
-                    return {
-                        "status": "success",
-                        "engine": f"{b_name} DOM 수집",
-                        "url": extracted.get("url", url),
-                        "title": extracted.get("title", ""),
-                        "count": extracted.get("totalCount", 0),
-                        "catalog": extracted.get("catalog", {}),
-                        "elapsed_sec": elapsed
-                    }
-            except Exception:
-                pass
-
-        # ---------------------------------------------------------------------
-        # [전략 3: 데스크톱 앱 / Fallback] Windows UIA COM 트리 수집
-        # ---------------------------------------------------------------------
+        # -----------------------------------------------------------------
+        # 전략 1: 최우선 — 사용자가 선택한 창(HWND) 직통 UIA 수집
+        # 세션/쿠키 완전 보존. /contract/list 같은 인증 필요 페이지도 정상 수집
+        # -----------------------------------------------------------------
         if HAS_UIA and (hwnd > 0 or window_title):
             try:
                 with uia.UIAutomationInitializerInThread():
@@ -139,7 +87,7 @@ class DOMHarvester:
                             elapsed = round(time.time() - start_time, 2)
                             return {
                                 "status": "success",
-                                "engine": "윈도우 UIA 수집",
+                                "engine": "창 직통 수집 (세션 보존)",
                                 "url": url or window_title,
                                 "title": target_ctrl.Name or window_title,
                                 "count": total_count,
@@ -149,9 +97,70 @@ class DOMHarvester:
             except Exception:
                 pass
 
-        # ---------------------------------------------------------------------
-        # [전략 4: HTML 정적 파서 Fallback]
-        # ---------------------------------------------------------------------
+        # -----------------------------------------------------------------
+        # 전략 2: 활성 Playwright 페이지 세션 직통 수집
+        # -----------------------------------------------------------------
+        if cls._active_playwright_page is not None:
+            try:
+                extracted = cls._active_playwright_page.evaluate(cls._get_js_extractor())
+                elapsed = round(time.time() - start_time, 2)
+                return {
+                    "status": "success",
+                    "engine": "활성 브라우저 직통 수집",
+                    "url": extracted.get("url", url),
+                    "title": extracted.get("title", ""),
+                    "count": extracted.get("totalCount", 0),
+                    "catalog": extracted.get("catalog", {}),
+                    "elapsed_sec": elapsed
+                }
+            except Exception:
+                pass
+
+        # -----------------------------------------------------------------
+        # 전략 3: URL 헤드리스 수집 — 창이 지정되지 않고 URL만 있을 때만 실행
+        # 조건: not (hwnd > 0 or window_title)
+        # → 창+URL 동시 제공 시 이 블록은 실행되지 않아 리다이렉트 원천 차단
+        # -----------------------------------------------------------------
+        if HAS_PLAYWRIGHT and url and not (hwnd > 0 or window_title):
+            target_u = url if url.startswith("http") else "http://" + url
+            try:
+                with sync_playwright() as p:
+                    launch_kwargs: Dict[str, Any] = {"headless": True}
+                    b_low = (browser_type or "").lower()
+                    if "chrome" in b_low:
+                        launch_kwargs["channel"] = "chrome"
+                    elif "edge" in b_low or "msedge" in b_low:
+                        launch_kwargs["channel"] = "msedge"
+
+                    try:
+                        browser = p.chromium.launch(**launch_kwargs)
+                    except Exception:
+                        browser = p.chromium.launch(headless=True)
+
+                    ctx = browser.new_context(viewport={"width": 1920, "height": 1080})
+                    pg = ctx.new_page()
+                    pg.goto(target_u, timeout=timeout_sec * 1000)
+                    pg.wait_for_load_state("domcontentloaded")
+                    time.sleep(2.0)
+                    extracted = pg.evaluate(cls._get_js_extractor())
+                    browser.close()
+
+                    b_name = browser_type.upper() if browser_type else "웹"
+                    return {
+                        "status": "success",
+                        "engine": f"{b_name} 헤드리스 수집",
+                        "url": extracted.get("url", url),
+                        "title": extracted.get("title", ""),
+                        "count": extracted.get("totalCount", 0),
+                        "catalog": extracted.get("catalog", {}),
+                        "elapsed_sec": round(time.time() - start_time, 2)
+                    }
+            except Exception:
+                pass
+
+        # -----------------------------------------------------------------
+        # 전략 4: 정적 HTML 파서 Fallback
+        # -----------------------------------------------------------------
         if HAS_BS4 and url:
             try:
                 headers = {"User-Agent": "Mozilla/5.0"}
@@ -159,23 +168,21 @@ class DOMHarvester:
                 resp = requests.get(target_u, headers=headers, timeout=timeout_sec)
                 soup = BeautifulSoup(resp.text, "html.parser")
 
-                catalog = {"inputs": [], "buttons": [], "selects": [], "checks_radios": [], "grids": [], "links": []}
+                catalog: Dict[str, List] = {"inputs": [], "buttons": [], "selects": [], "checks_radios": [], "grids": [], "links": []}
 
-                # 1. Inputs & Selects
                 for el in soup.find_all(["input", "select", "textarea"])[:80]:
                     tag = el.name
                     t = (el.get("type") or "text").lower() if tag == "input" else tag
                     i = el.get("id") or ""
                     n = el.get("name") or ""
                     ph = el.get("placeholder") or ""
-                    raw_html = str(el.parent if el.parent and el.parent.name == 'div' else el)[:300]
+                    raw_html = str(el.parent if el.parent and el.parent.name == "div" else el)[:300]
 
-                    # 3~4단계 상위 조상 텍스트 계층 탐색
-                    ancestor_texts = []
+                    ancestor_texts: List[str] = []
                     curr = el.parent
                     depth = 0
-                    while curr and depth < 5 and curr.name not in ['body', 'html']:
-                        lbl_node = curr.find(class_=re.compile(r"input-group-text|form-label|label|title")) or curr.find(['label', 'th', 'dt', 'legend', 'span'])
+                    while curr and depth < 5 and curr.name not in ["body", "html"]:
+                        lbl_node = curr.find(class_=re.compile(r"input-group-text|form-label|label|title")) or curr.find(["label", "th", "dt", "legend", "span"])
                         if lbl_node and lbl_node != el:
                             txt = lbl_node.get_text(strip=True)
                             if txt and len(txt) <= 30 and txt not in ["선택", "입력", "전체", "조회"] and txt not in ancestor_texts:
@@ -197,16 +204,14 @@ class DOMHarvester:
                         sel = f"#{i}" if i else (f"input[name='{n}']" if n else (f"div.input-group:has-text('{ig_text}') input" if ig_text else (f"input[placeholder*='{ph}']" if ph else "input[type='text']")))
                         catalog["inputs"].append({"label": disp, "id": i, "name": n, "placeholder": ph, "type": t, "path": path_str, "html": raw_html, "selector": sel, "playwrightCode": f'page.locator("{sel}").fill("값")'})
 
-                # 2. Buttons
                 for btn in soup.find_all(["button", "a"])[:40]:
                     bt = btn.get_text(strip=True)[:30]
                     raw_html = str(btn)[:300]
                     if btn.name == "button" and bt:
-                        catalog["buttons"].append({"text": bt, "id": btn.get("id", ""), "className": btn.get("class", ""), "path": bt, "html": raw_html, "selector": f"button:has-text('{bt}')", "playwrightCode": f'page.locator("button:has-text(\'{bt}\')").click()'})
+                        catalog["buttons"].append({"text": bt, "id": btn.get("id", ""), "path": bt, "html": raw_html, "selector": f"button:has-text('{bt}')", "playwrightCode": f'page.locator("button:has-text(\'{bt}\')").click()'})
                     elif btn.name == "a" and bt and len(bt) >= 2:
                         catalog["links"].append({"text": bt, "path": bt, "html": raw_html, "selector": f"a:has-text('{bt}')", "playwrightCode": f'page.locator("a:has-text(\'{bt}\')").click()'})
 
-                elapsed = round(time.time() - start_time, 2)
                 return {
                     "status": "success",
                     "engine": "HTML 파서 수집",
@@ -214,20 +219,20 @@ class DOMHarvester:
                     "title": soup.title.string if soup.title else "",
                     "count": sum(len(v) for v in catalog.values()),
                     "catalog": catalog,
-                    "elapsed_sec": elapsed
+                    "elapsed_sec": round(time.time() - start_time, 2)
                 }
             except Exception as ex:
                 raise RuntimeError(f"수집 실패: {ex}")
 
-        raise RuntimeError("조작 가능한 컨트롤을 찾을 수 없습니다. URL을 입력하거나 대상 창을 확인하십시오.")
+        raise RuntimeError("조작 가능한 컨트롤을 찾을 수 없습니다. 대상 창을 선택하거나 URL을 입력하십시오.")
 
     @classmethod
     def _walk_uia_controls(cls, win_ctrl) -> Dict[str, List[Dict[str, Any]]]:
         """UIA COM 트리를 순회하여 화면 컨트롤 전수 분류 및 인접 텍스트 라벨 매핑"""
-        catalog = {"inputs": [], "buttons": [], "selects": [], "checks_radios": [], "grids": [], "links": []}
-        seen_keys = set()
+        catalog: Dict[str, List] = {"inputs": [], "buttons": [], "selects": [], "checks_radios": [], "grids": [], "links": []}
+        seen_keys: set = set()
         count = 0
-        last_seen_texts = []
+        last_seen_texts: List[str] = []
 
         for ctrl, depth in uia.WalkControl(win_ctrl, maxDepth=14):
             if count >= 200:
@@ -259,14 +264,10 @@ class DOMHarvester:
                     disp = (name if (name and name not in ["입력", "입력창"]) else "") or recent_txt or auto_id or "입력창"
                     sel = f"#{auto_id}" if auto_id else (f"input[name='{name}']" if (name and name not in ["입력", "입력창"]) else (f"div.input-group:has-text('{recent_txt}') input" if recent_txt else "input[type='text']"))
                     catalog["inputs"].append({
-                        "label": disp,
-                        "id": auto_id,
-                        "name": name,
-                        "placeholder": cur_val,
+                        "label": disp, "id": auto_id, "name": name, "placeholder": cur_val,
                         "path": path_str,
                         "html": f"<{ctype} Name='{name}' AutoId='{auto_id}' Class='{cls_name}'>",
-                        "selector": sel,
-                        "playwrightCode": f'page.locator("{sel}").fill("값입력")'
+                        "selector": sel, "playwrightCode": f'page.locator("{sel}").fill("값입력")'
                     })
                     count += 1
 
@@ -276,27 +277,22 @@ class DOMHarvester:
                     if btn_label and len(btn_label) <= 25:
                         sel = f"button:has-text('{btn_label}')"
                         catalog["buttons"].append({
-                            "text": btn_label,
-                            "id": auto_id,
-                            "className": cls_name,
+                            "text": btn_label, "id": auto_id, "className": cls_name,
                             "path": path_str,
                             "html": f"<{ctype} Name='{name}' AutoId='{auto_id}' Class='{cls_name}'>",
-                            "selector": sel,
-                            "playwrightCode": f'page.locator("{sel}").click()'
+                            "selector": sel, "playwrightCode": f'page.locator("{sel}").click()'
                         })
                         count += 1
 
                 # 3. 체크박스 / 라디오
                 elif ctype in ["CheckBoxControl", "RadioButtonControl"]:
                     disp = name or recent_txt or auto_id or "체크박스"
-                    sel = f"#{auto_id}" if auto_id else (f"div:has-text('{recent_txt}') input" if recent_txt else f"input[type='checkbox']")
+                    sel = f"#{auto_id}" if auto_id else (f"div:has-text('{recent_txt}') input" if recent_txt else "input[type='checkbox']")
                     catalog["checks_radios"].append({
-                        "label": disp,
-                        "id": auto_id,
+                        "label": disp, "id": auto_id,
                         "path": path_str,
                         "html": f"<{ctype} Name='{name}' AutoId='{auto_id}'>",
-                        "selector": sel,
-                        "playwrightCode": f'page.locator("{sel}").check()'
+                        "selector": sel, "playwrightCode": f'page.locator("{sel}").check()'
                     })
                     count += 1
 
@@ -305,12 +301,10 @@ class DOMHarvester:
                     disp = (name if (name and name not in ["선택", "드롭다운"]) else "") or recent_txt or auto_id or "드롭다운"
                     sel = f"select[name='{name}']" if name else (f"#{auto_id}" if auto_id else (f"div.input-group:has-text('{recent_txt}') select" if recent_txt else "select"))
                     catalog["selects"].append({
-                        "label": disp,
-                        "id": auto_id,
+                        "label": disp, "id": auto_id,
                         "path": path_str,
                         "html": f"<{ctype} Name='{name}' AutoId='{auto_id}'>",
-                        "selector": sel,
-                        "playwrightCode": f'page.locator("{sel}").select_option(label="선택")'
+                        "selector": sel, "playwrightCode": f'page.locator("{sel}").select_option(label="선택")'
                     })
                     count += 1
 
@@ -319,11 +313,9 @@ class DOMHarvester:
                     disp = name or recent_txt or "데이터 그리드"
                     sel = ".ag-row, table tbody tr"
                     catalog["grids"].append({
-                        "type": disp,
-                        "path": path_str,
+                        "type": disp, "path": path_str,
                         "html": f"<{ctype} Name='{name}'>",
-                        "selector": sel,
-                        "playwrightCode": f'page.locator("{sel}").first.dblclick()'
+                        "selector": sel, "playwrightCode": f'page.locator("{sel}").first.dblclick()'
                     })
                     count += 1
 
@@ -331,11 +323,9 @@ class DOMHarvester:
                 elif ctype in ["HyperlinkControl", "TabItemControl"] and name and len(name) <= 30:
                     sel = f"a:has-text('{name}')"
                     catalog["links"].append({
-                        "text": name,
-                        "path": path_str,
+                        "text": name, "path": path_str,
                         "html": f"<{ctype} Name='{name}'>",
-                        "selector": sel,
-                        "playwrightCode": f'page.locator("{sel}").click()'
+                        "selector": sel, "playwrightCode": f'page.locator("{sel}").click()'
                     })
                     count += 1
 
@@ -362,7 +352,7 @@ class DOMHarvester:
                 const ancestors = [];
                 let primaryLabel = '';
 
-                // 1. 바로 앞의 형제 span.input-group-text 또는 .form-label (최우선!)
+                // 1. 직전 형제 span.input-group-text 등
                 let prev = el.previousElementSibling;
                 while (prev) {
                     const t = cleanText(prev.innerText || prev.textContent || '');
@@ -387,7 +377,7 @@ class DOMHarvester:
                     }
                 }
 
-                // 3. 명시적 <label for="id"> 또는 직계 <label>
+                // 3. 명시적 <label for="id">
                 if (id) {
                     const forLbl = document.querySelector(`label[for="${id}"]`);
                     if (forLbl) {
@@ -407,7 +397,7 @@ class DOMHarvester:
                     }
                 }
 
-                // 4. 상위 조상 계층(Upward Ancestor) 3~4단계 순회
+                // 4. 상위 조상 3~4단계 순회
                 let current = el.parentElement;
                 let depth = 0;
                 while (current && depth < 5 && current.tagName.toLowerCase() !== 'body' && current.tagName.toLowerCase() !== 'html') {
@@ -432,7 +422,6 @@ class DOMHarvester:
                     }
                 }
 
-                // Outer HTML 조각 (input-group 부모 포함 최대 280자)
                 const container = el.closest('.input-group, .form-group') || el;
                 const rawHtml = container.outerHTML ? container.outerHTML.slice(0, 300) : '';
 
@@ -467,7 +456,7 @@ class DOMHarvester:
 
                 if (isSelect) {
                     const disp = visibleLabel || id || name || '드롭다운';
-                    let sel = id ? `#${id}` : (name ? `select[name='${name}']` : (visibleLabel ? `div.input-group:has-text('${visibleLabel}') select, select:has-text('${visibleLabel}'), select` : 'select'));
+                    let sel = id ? `#${id}` : (name ? `select[name='${name}']` : (visibleLabel ? `div.input-group:has-text('${visibleLabel}') select, select` : 'select'));
                     catalog.selects.push({ label: disp, id, name, path: pathStr, html: elemHtml, selector: sel, playwrightCode: `page.locator("${sel}").select_option(label="선택")` });
                     count++;
                 } else if (type === 'checkbox' || type === 'radio' || el.getAttribute('role') === 'checkbox' || el.getAttribute('role') === 'radio') {
