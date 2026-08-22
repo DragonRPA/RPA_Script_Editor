@@ -1153,6 +1153,112 @@ class AIVisionFrame(ctk.CTkFrame):
         self._render_keep_list()
         self._render_var_chips()
 
+    def _add_step_ui(self):
+        idx = len(self.step_widgets) + 1
+        step_f = ctk.CTkFrame(self.sf_steps, fg_color="#1a1a1a", corner_radius=6)
+        step_f.pack(fill="x", padx=2, pady=4)
+
+        # 헤더
+        hdr = ctk.CTkFrame(step_f, fg_color="#222222", corner_radius=0)
+        hdr.pack(fill="x")
+        lbl_idx = ctk.CTkLabel(hdr, text=f"Step {idx}", font=ctk.CTkFont(weight="bold", size=11), text_color="#64b5f6")
+        lbl_idx.pack(side="left", padx=8, pady=4)
+        
+        def _del(sf=step_f):
+            sf.destroy()
+            self.step_widgets = [w for w in self.step_widgets if w["frame"] != sf]
+            self._renumber_steps()
+            
+        ctk.CTkButton(hdr, text="✕", width=24, height=24, fg_color="transparent", hover_color="#444", command=_del).pack(side="right", padx=4)
+
+        keep_names = [k["var_name"] for k in getattr(self, "keep_list", []) if k.get("keep_type", "element") == "element"]
+        if not keep_names:
+            keep_names = ["(Keep 요소 없음)"]
+
+        # 행 1: 액션
+        r1 = ctk.CTkFrame(step_f, fg_color="transparent")
+        r1.pack(fill="x", padx=6, pady=4)
+
+        f_act = ctk.CTkFrame(r1, fg_color="transparent")
+        f_act.pack(side="left", padx=4)
+        ctk.CTkLabel(f_act, text="액션", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        cb_act = ctk.CTkComboBox(f_act, values=["클릭", "입력", "수집", "키입력", "대기"], width=90, font=ctk.CTkFont(size=11))
+        cb_act.set("클릭")
+        cb_act.pack(anchor="w")
+
+        f_tgt = ctk.CTkFrame(r1, fg_color="transparent")
+        f_tgt.pack(side="left", padx=4)
+        ctk.CTkLabel(f_tgt, text="대상 요소", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        cb_tgt = ctk.CTkComboBox(f_tgt, values=keep_names, width=140, font=ctk.CTkFont(size=11))
+        cb_tgt.pack(anchor="w")
+
+        f_val = ctk.CTkFrame(r1, fg_color="transparent")
+        f_val.pack(side="left", padx=4, fill="x", expand=True)
+        ctk.CTkLabel(f_val, text="입력 값 (필요시)", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        ent_val = ctk.CTkEntry(f_val, font=ctk.CTkFont(size=11))
+        ent_val.pack(fill="x")
+
+        # 행 2: 완료조건
+        r2 = ctk.CTkFrame(step_f, fg_color="transparent")
+        r2.pack(fill="x", padx=6, pady=(0, 6))
+
+        f_ctype = ctk.CTkFrame(r2, fg_color="transparent")
+        f_ctype.pack(side="left", padx=4)
+        ctk.CTkLabel(f_ctype, text="완료조건", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        cb_ctype = ctk.CTkComboBox(f_ctype, values=["없음", "요소 출현", "요소 사라짐", "텍스트 일치", "고정 지연"], width=100, font=ctk.CTkFont(size=11))
+        cb_ctype.set("없음")
+        cb_ctype.pack(anchor="w")
+
+        f_ctgt = ctk.CTkFrame(r2, fg_color="transparent")
+        f_ctgt.pack(side="left", padx=4)
+        ctk.CTkLabel(f_ctgt, text="조건 대상", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        cb_ctgt = ctk.CTkComboBox(f_ctgt, values=keep_names, width=140, font=ctk.CTkFont(size=11))
+        cb_ctgt.pack(anchor="w")
+
+        f_cval = ctk.CTkFrame(r2, fg_color="transparent")
+        f_cval.pack(side="left", padx=4, fill="x", expand=True)
+        ctk.CTkLabel(f_cval, text="기대값 / 지연(ms)", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        ent_cval = ctk.CTkEntry(f_cval, font=ctk.CTkFont(size=11))
+        ent_cval.pack(fill="x")
+
+        f_to = ctk.CTkFrame(r2, fg_color="transparent")
+        f_to.pack(side="left", padx=4)
+        ctk.CTkLabel(f_to, text="타임아웃(s)", font=ctk.CTkFont(size=10)).pack(anchor="w")
+        ent_to = ctk.CTkEntry(f_to, width=60, font=ctk.CTkFont(size=11))
+        ent_to.insert(0, "10")
+        ent_to.pack(anchor="w")
+
+        self.step_widgets.append({
+            "frame": step_f,
+            "hdr_label": lbl_idx,
+            "cb_act": cb_act,
+            "cb_tgt": cb_tgt,
+            "ent_val": ent_val,
+            "cb_ctype": cb_ctype,
+            "cb_ctgt": cb_ctgt,
+            "ent_cval": ent_cval,
+            "ent_to": ent_to
+        })
+
+    def _renumber_steps(self):
+        for i, w in enumerate(self.step_widgets):
+            w["hdr_label"].configure(text=f"Step {i+1}")
+
+    def _update_step_dropdowns(self):
+        if not hasattr(self, "step_widgets"): return
+        keep_names = [k["var_name"] for k in getattr(self, "keep_list", []) if k.get("keep_type", "element") == "element"]
+        if not keep_names:
+            keep_names = ["(Keep 요소 없음)"]
+        for w in self.step_widgets:
+            curr_tgt = w["cb_tgt"].get()
+            curr_ctgt = w["cb_ctgt"].get()
+            w["cb_tgt"].configure(values=keep_names)
+            w["cb_ctgt"].configure(values=keep_names)
+            if curr_tgt not in keep_names and keep_names:
+                w["cb_tgt"].set(keep_names[0])
+            if curr_ctgt not in keep_names and keep_names:
+                w["cb_ctgt"].set(keep_names[0])
+
     # ── 요소 타입 → 가능한 액션 매핑 ─────────────────────────────────────────
     _ELEM_ACTIONS = {
         # element_type 키워드 → [(표시 라벨, 삽입 문장 템플릿)]
