@@ -1,6 +1,19 @@
 # RELEASE_NOTES.md
 
-## [v2.4.3.Build.25] - 2026-08-22 14:07
+## [v2.4.4.Build.26] - 2026-08-22 14:13
+
+### 🎯 [시각적 라벨 매핑 고도화] Bootstrap `.input-group-text` 및 인접 텍스트 라벨 자동 인식 탑재
+
+1. **사람 눈에 보이는 시각적 라벨 텍스트(예: `계약번호`, `고객명`) 자동 인식**:
+   - `<div class="input-group"><span class="input-group-text">계약번호</span><input ...></div>` 구조처럼 input 태그 자체에 id나 name, placeholder가 없는 경우에도, **부모/형제 요소인 `.input-group-text`, `.form-label`, `th`, 인접 `span` 텍스트를 정밀 분석하여 `[입력] 계약번호`로 직관적 라벨 표시**
+2. **Playwright 복합 셀렉터 자동 생성**:
+   - `div.input-group:has-text('계약번호') input` 등 시각적 텍스트 기반의 고유 Playwright 셀렉터를 즉시 자동 생성하여 선택 및 복사 편의성 극대화
+3. **UIA 및 HTML 전수 파서 일괄 적용**:
+   - 활성 웹 브라우저 DOM 파서(`_get_js_extractor`), Windows UIA COM 트리 순회(`_walk_uia_controls`), 정적 HTML 파서 전반에 시각적 라벨 연계 알고리즘 전면 적용
+
+---
+
+
 
 ### 🌐 [브라우저 선택 기능 탑재] Chrome / Edge / 기본 브라우저 지정 UI 및 RPA 실행 채널 연동
 

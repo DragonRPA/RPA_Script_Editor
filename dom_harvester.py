@@ -1,7 +1,7 @@
 """
 Universal RPA - Live Interactive DOM & Window UI Harvester
 - 열려있는 윈도우 창(HWND) 직통 검사 (새로고침/깜빡임 0%, 로그인 세션 100% 보존)
-- Windows UIAutomation COM 트리 순회로 화면에 렌더링된 실시간 컨트롤 전수 수집
+- Windows UIAutomation COM 트리 순회 및 Bootstrap/.input-group-text 등 눈에 보이는 라벨 텍스트 전수 정밀 매핑
 - 웹 브라우저(Chrome/Edge) 및 데스크톱 앱(ERP/더존/SAP) 전천후 지원
 """
 
@@ -32,7 +32,7 @@ except ImportError:
 
 
 class DOMHarvester:
-    """실시간 UI/DOM 객체 수집기 (깜빡임/새로고침 없는 윈도우 핸들 직통 검사)"""
+    """실시간 UI/DOM 객체 수집기 (깜빡임/새로고침 없는 윈도우 핸들 직통 검사 및 시각적 라벨 정밀 매핑)"""
 
     _active_playwright_page = None
 
@@ -148,7 +148,6 @@ class DOMHarvester:
             except Exception:
                 pass
 
-
         # ---------------------------------------------------------------------
         # [전략 4] 정적 HTML Fallback
         # ---------------------------------------------------------------------
@@ -164,10 +163,23 @@ class DOMHarvester:
                     i = inp.get("id") or ""
                     n = inp.get("name") or ""
                     ph = inp.get("placeholder") or ""
+
+                    # 부모/형제 컨테이너의 .input-group-text, .form-label, label 등 텍스트 추출
+                    ig = inp.find_parent(class_=re.compile(r"input-group|form-group|row|col"))
+                    ig_text = ""
+                    if ig:
+                        lbl_node = ig.find(class_=re.compile(r"input-group-text|form-label|label"))
+                        if lbl_node:
+                            ig_text = lbl_node.get_text(strip=True)
+
+                    disp = ig_text or ph or i or n or "입력창"
+
                     if t in ["checkbox", "radio"]:
-                        catalog["checks_radios"].append({"label": ph or i or n or "체크", "id": i, "name": n, "type": t, "selector": f"#{i}" if i else f"input[name='{n}']", "playwrightCode": f'page.locator("#{i}").check()' if i else f'page.locator("input[name=\'{n}\']").check()'})
+                        sel = f"#{i}" if i else (f"input[name='{n}']" if n else (f"div.input-group:has-text('{ig_text}') input" if ig_text else f"input[type='{t}']"))
+                        catalog["checks_radios"].append({"label": disp, "id": i, "name": n, "type": t, "selector": sel, "playwrightCode": f'page.locator("{sel}").check()'})
                     else:
-                        catalog["inputs"].append({"label": ph or i or n or "입력창", "id": i, "name": n, "placeholder": ph, "type": t, "selector": f"#{i}" if i else f"input[name='{n}']", "playwrightCode": f'page.locator("#{i}").fill("값")' if i else f'page.locator("input[name=\'{n}\']").fill("값")'})
+                        sel = f"#{i}" if i else (f"input[name='{n}']" if n else (f"div.input-group:has-text('{ig_text}') input" if ig_text else (f"input[placeholder*='{ph}']" if ph else "input[type='text']")))
+                        catalog["inputs"].append({"label": disp, "id": i, "name": n, "placeholder": ph, "type": t, "selector": sel, "playwrightCode": f'page.locator("{sel}").fill("값")'})
 
                 for btn in soup.find_all(["button", "a"])[:40]:
                     bt = btn.get_text(strip=True)[:30]
@@ -193,10 +205,11 @@ class DOMHarvester:
 
     @classmethod
     def _walk_uia_controls(cls, win_ctrl) -> Dict[str, List[Dict[str, Any]]]:
-        """UIA COM 트리를 순회하여 실시간 화면 컨트롤 전수 분류"""
+        """UIA COM 트리를 순회하여 실시간 화면 컨트롤 전수 분류 및 인접 텍스트 라벨 매핑"""
         catalog = {"inputs": [], "buttons": [], "selects": [], "checks_radios": [], "grids": [], "links": []}
         seen_keys = set()
         count = 0
+        last_seen_text = ""
 
         for ctrl, depth in uia.WalkControl(win_ctrl, maxDepth=14):
             if count >= 200:
@@ -209,6 +222,10 @@ class DOMHarvester:
                 val_pattern = ctrl.GetPattern(uia.PatternId.ValuePattern)
                 cur_val = val_pattern.Value if val_pattern else ""
 
+                # 인접한 TextControl의 문자열(예: '계약번호', '고객명')을 캐시
+                if ctype == "TextControl" and name and len(name) <= 25 and not name.startswith("http"):
+                    last_seen_text = name
+
                 key = f"{ctype}_{name}_{auto_id}_{cls_name}"
                 if key in seen_keys:
                     continue
@@ -216,8 +233,16 @@ class DOMHarvester:
 
                 # 1. 텍스트 입력창
                 if ctype in ["EditControl", "DocumentControl"] or "edit" in cls_name.lower():
-                    disp = name or auto_id or "입력창"
-                    sel = f"#{auto_id}" if auto_id else (f"input[name='{name}']" if name else f"div:has(> label:has-text('{disp}')) input")
+                    disp = name or last_seen_text or auto_id or "입력창"
+                    if auto_id:
+                        sel = f"#{auto_id}"
+                    elif name:
+                        sel = f"input[name='{name}']"
+                    elif last_seen_text:
+                        sel = f"div.input-group:has-text('{last_seen_text}') input"
+                    else:
+                        sel = "input[type='text']"
+
                     catalog["inputs"].append({
                         "label": disp,
                         "id": auto_id,
@@ -227,24 +252,27 @@ class DOMHarvester:
                         "playwrightCode": f'page.locator("{sel}").fill("값입력")'
                     })
                     count += 1
+                    last_seen_text = ""
 
                 # 2. 버튼
                 elif ctype in ["ButtonControl", "MenuItemControl"] or "button" in cls_name.lower() or "btn" in cls_name.lower():
-                    if name:
-                        sel = f"button:has-text('{name}')"
+                    btn_label = name or last_seen_text or "버튼"
+                    if btn_label and len(btn_label) <= 25:
+                        sel = f"button:has-text('{btn_label}')"
                         catalog["buttons"].append({
-                            "text": name,
+                            "text": btn_label,
                             "id": auto_id,
                             "className": cls_name,
                             "selector": sel,
                             "playwrightCode": f'page.locator("{sel}").click()'
                         })
                         count += 1
+                        last_seen_text = ""
 
                 # 3. 체크박스 / 라디오
                 elif ctype in ["CheckBoxControl", "RadioButtonControl"]:
-                    disp = name or auto_id or "체크박스"
-                    sel = f"#{auto_id}" if auto_id else f"input[type='checkbox']"
+                    disp = name or last_seen_text or auto_id or "체크박스"
+                    sel = f"#{auto_id}" if auto_id else (f"div:has-text('{last_seen_text}') input" if last_seen_text else f"input[type='checkbox']")
                     catalog["checks_radios"].append({
                         "label": disp,
                         "id": auto_id,
@@ -252,11 +280,12 @@ class DOMHarvester:
                         "playwrightCode": f'page.locator("{sel}").check()'
                     })
                     count += 1
+                    last_seen_text = ""
 
                 # 4. 드롭다운 / 콤보박스
                 elif ctype in ["ComboBoxControl", "ListControl"]:
-                    disp = name or auto_id or "드롭다운"
-                    sel = f"select[name='{name}']" if name else (f"#{auto_id}" if auto_id else "select")
+                    disp = name or last_seen_text or auto_id or "드롭다운"
+                    sel = f"select[name='{name}']" if name else (f"#{auto_id}" if auto_id else (f"div:has-text('{last_seen_text}') select" if last_seen_text else "select"))
                     catalog["selects"].append({
                         "label": disp,
                         "id": auto_id,
@@ -264,10 +293,11 @@ class DOMHarvester:
                         "playwrightCode": f'page.locator("{sel}").select_option(label="선택")'
                     })
                     count += 1
+                    last_seen_text = ""
 
                 # 5. 그리드 / 테이블
-                elif ctype in ["DataGridControl", "TableControl", "ListControl"] or "grid" in cls_name.lower() or "ag-" in cls_name.lower():
-                    disp = name or "데이터 그리드"
+                elif ctype in ["DataGridControl", "TableControl"] or "grid" in cls_name.lower() or "ag-" in cls_name.lower():
+                    disp = name or last_seen_text or "데이터 그리드"
                     sel = ".ag-row, table tbody tr"
                     catalog["grids"].append({
                         "type": disp,
@@ -275,6 +305,7 @@ class DOMHarvester:
                         "playwrightCode": f'page.locator("{sel}").first.dblclick()'
                     })
                     count += 1
+                    last_seen_text = ""
 
                 # 6. 하이퍼링크 / 탭
                 elif ctype in ["HyperlinkControl", "TabItemControl"] and name and len(name) <= 30:
@@ -297,6 +328,54 @@ class DOMHarvester:
             const catalog = { inputs: [], buttons: [], selects: [], checks_radios: [], grids: [], links: [] };
             const elements = document.querySelectorAll('input, button, select, textarea, [role="button"], [role="textbox"], [role="tab"], [role="checkbox"], [role="radio"], a, table, .ag-root, .ag-row, form');
             let count = 0;
+
+            function findVisibleLabel(el, id) {
+                // 1. Explicit <label for="id">
+                if (id) {
+                    const forLbl = document.querySelector(`label[for="${id}"]`);
+                    if (forLbl) {
+                        const t = forLbl.innerText.trim().replace(/\\s+/g, ' ');
+                        if (t) return t.slice(0, 30);
+                    }
+                }
+                // 2. Nearest wrapping <label>
+                const wrapLbl = el.closest('label');
+                if (wrapLbl) {
+                    const t = wrapLbl.innerText.trim().replace(/\\s+/g, ' ');
+                    if (t) return t.slice(0, 30);
+                }
+                // 3. Bootstrap .input-group > .input-group-text (e.g. <span class="input-group-text">계약번호</span>)
+                const inputGroup = el.closest('.input-group, .form-group, .form-floating');
+                if (inputGroup) {
+                    const igText = inputGroup.querySelector('.input-group-text, .form-label, label, span.title, dt');
+                    if (igText && igText !== el) {
+                        const t = igText.innerText.trim().replace(/\\s+/g, ' ');
+                        if (t) return t.slice(0, 30);
+                    }
+                }
+                // 4. Previous sibling or preceding span/label text
+                let prev = el.previousElementSibling;
+                while (prev) {
+                    const t = (prev.innerText || prev.textContent || '').trim().replace(/\\s+/g, ' ');
+                    if (t && t.length <= 30 && !t.includes('{') && !t.includes('(')) return t;
+                    prev = prev.previousElementSibling;
+                }
+                // 5. Parent row / col label
+                const parentRow = el.closest('tr, .row, .col, .d-flex, form');
+                if (parentRow) {
+                    const lblElem = parentRow.querySelector('.input-group-text, .form-label, label, th');
+                    if (lblElem && lblElem !== el && !lblElem.contains(el)) {
+                        const t = lblElem.innerText.trim().replace(/\\s+/g, ' ');
+                        if (t && t.length <= 30) return t;
+                    }
+                }
+                // 6. aria-label, placeholder, title
+                const aria = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title');
+                if (aria) return aria.trim().replace(/\\s+/g, ' ').slice(0, 30);
+
+                return '';
+            }
+
             elements.forEach((el) => {
                 if (count >= 200) return;
                 const tag = el.tagName.toLowerCase();
@@ -308,44 +387,50 @@ class DOMHarvester:
                 const name = el.name ? el.name.trim() : '';
                 const type = (el.type || '').toLowerCase();
                 const placeholder = el.placeholder ? el.placeholder.trim() : '';
-                const ariaLabel = el.getAttribute('aria-label') ? el.getAttribute('aria-label').trim() : '';
-                const role = el.getAttribute('role') ? el.getAttribute('role').trim() : '';
                 const className = typeof el.className === 'string' ? el.className.trim().split(/\\s+/).slice(0, 3).join(' ') : '';
                 const rawText = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
                 const text = rawText.slice(0, 35);
 
-                let label = '';
-                const lbl = el.closest('label') || (id ? document.querySelector(`label[for="${id}"]`) : null) || el.parentElement?.querySelector('label');
-                if (lbl) label = lbl.innerText.trim().replace(/\\s+/g, ' ').slice(0, 30);
-                if (!label && placeholder) label = placeholder;
-                if (!label && ariaLabel) label = ariaLabel;
+                const visibleLabel = findVisibleLabel(el, id);
 
-                if (type === 'checkbox' || type === 'radio' || role === 'checkbox' || role === 'radio') {
-                    const disp = label || text || id || '체크박스';
-                    const sel = id ? `#${id}` : (name ? `input[name='${name}']` : `input[type='${type}']`);
+                if (type === 'checkbox' || type === 'radio' || el.getAttribute('role') === 'checkbox' || el.getAttribute('role') === 'radio') {
+                    const disp = visibleLabel || text || id || name || '체크박스';
+                    let sel = id ? `#${id}` : (name ? `input[name='${name}']` : (visibleLabel ? `div.input-group:has-text('${visibleLabel}') input, label:has-text('${visibleLabel}') input` : `input[type='${type}']`));
                     catalog.checks_radios.push({ label: disp, id, name, selector: sel, playwrightCode: `page.locator("${sel}").check()` });
                     count++;
                 } else if (tag === 'textarea' || (tag === 'input' && !['submit', 'button', 'reset', 'image', 'checkbox', 'radio'].includes(type))) {
-                    const disp = label || placeholder || id || '입력창';
-                    let sel = id ? `#${id}` : (name ? `input[name='${name}']` : (placeholder ? `input[placeholder*='${placeholder}']` : (label ? `div:has(> label:has-text('${label}')) input` : 'input[type="text"]')));
+                    const disp = visibleLabel || placeholder || id || name || '입력창';
+                    let sel = '';
+                    if (id) {
+                        sel = `#${id}`;
+                    } else if (name) {
+                        sel = `input[name='${name}']`;
+                    } else if (visibleLabel) {
+                        sel = `div.input-group:has-text('${visibleLabel}') input, div:has(> .input-group-text:has-text('${visibleLabel}')) input`;
+                    } else if (placeholder) {
+                        sel = `input[placeholder*='${placeholder}']`;
+                    } else {
+                        sel = className ? `input.${className.replace(/\\s+/g, '.')}` : 'input[type="text"]';
+                    }
                     catalog.inputs.push({ tag, type, label: disp, id, name, placeholder, selector: sel, playwrightCode: `page.locator("${sel}").fill("값입력")` });
                     count++;
-                } else if (tag === 'button' || role === 'button' || (tag === 'input' && ['submit', 'button', 'reset'].includes(type))) {
-                    const btnText = text || label || ariaLabel || id || '버튼';
+                } else if (tag === 'button' || el.getAttribute('role') === 'button' || (tag === 'input' && ['submit', 'button', 'reset'].includes(type))) {
+                    const btnText = text || visibleLabel || id || '버튼';
                     let sel = (btnText && btnText.length <= 25) ? `button:has-text('${btnText}')` : (id ? `#${id}` : (className ? `.${className.replace(/\\s+/g, '.')}` : 'button'));
                     catalog.buttons.push({ text: btnText, id, className, type, selector: sel, playwrightCode: `page.locator("${sel}").click()` });
                     count++;
-                } else if (tag === 'select' || role === 'combobox' || role === 'listbox') {
-                    const disp = label || id || '드롭다운';
-                    const sel = id ? `#${id}` : (name ? `select[name='${name}']` : 'select');
+                } else if (tag === 'select' || el.getAttribute('role') === 'combobox' || el.getAttribute('role') === 'listbox') {
+                    const disp = visibleLabel || id || name || '드롭다운';
+                    let sel = id ? `#${id}` : (name ? `select[name='${name}']` : (visibleLabel ? `div.input-group:has-text('${visibleLabel}') select, select` : 'select'));
                     catalog.selects.push({ label: disp, id, name, selector: sel, playwrightCode: `page.locator("${sel}").select_option(label="선택")` });
                     count++;
                 } else if (tag === 'table' || el.classList.contains('ag-root')) {
                     const isAg = el.classList.contains('ag-root');
                     const sel = isAg ? '.ag-row' : 'table tbody tr';
-                    catalog.grids.push({ type: isAg ? 'AG-Grid' : 'HTML Table', id, selector: sel, playwrightCode: `page.locator("${sel}").first.dblclick()` });
+                    const disp = visibleLabel || (isAg ? 'AG-Grid 데이터 그리드' : 'HTML 테이블');
+                    catalog.grids.push({ type: disp, id, selector: sel, playwrightCode: `page.locator("${sel}").first.dblclick()` });
                     count++;
-                } else if ((tag === 'a' && text) || role === 'tab') {
+                } else if ((tag === 'a' && text) || el.getAttribute('role') === 'tab') {
                     if (text && text.length >= 2 && text.length <= 30 && !text.includes('function') && !text.includes('var ')) {
                         catalog.links.push({ text, selector: `a:has-text('${text}')`, playwrightCode: `page.locator("a:has-text('${text}')").click()` });
                         count++;
