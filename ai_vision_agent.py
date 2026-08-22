@@ -279,13 +279,17 @@ class AIVisionFrame(ctk.CTkFrame):
 
     def __init__(self, parent, on_insert_code: Optional[Callable[[str], None]] = None,
                  on_add_to_bot: Optional[Callable[[Dict[str, Any]], None]] = None,
-                 on_switch_tab: Optional[Callable[[str], None]] = None):
+                 on_switch_tab: Optional[Callable[[str], None]] = None,
+                 project: Optional[Dict[str, Any]] = None,
+                 db_manager=None):
         super().__init__(parent, fg_color="transparent")
 
         self.parent_app = parent
         self.on_insert_code = on_insert_code
         self.on_add_to_bot = on_add_to_bot
         self.on_switch_tab = on_switch_tab
+        self.current_project: Optional[Dict[str, Any]] = project
+        self.db = db_manager
 
         self.current_image_path: Optional[str] = None
         self.preview_image_ref: Optional[ImageTk.PhotoImage] = None
@@ -298,6 +302,25 @@ class AIVisionFrame(ctk.CTkFrame):
         self._refresh_window_list()
 
     def _build_ui(self):
+        # ── 프로젝트 컨텍스트 바 (상단 고정) ──────────────────────────────────
+        proj_bar = ctk.CTkFrame(self, fg_color="#111111", corner_radius=0, height=32)
+        proj_bar.pack(fill="x", padx=0, pady=(0, 2))
+        proj_bar.pack_propagate(False)
+
+        self.lbl_proj_name = ctk.CTkLabel(
+            proj_bar, text="[오프라인]",
+            font=ctk.CTkFont(size=11, weight="bold"), text_color="#888888"
+        )
+        self.lbl_proj_name.pack(side="left", padx=(12, 0))
+
+        ctk.CTkButton(
+            proj_bar, text="프로젝트 전환", width=90, height=22,
+            font=ctk.CTkFont(size=10), fg_color="#333333", hover_color="#444444",
+            command=self._switch_project
+        ).pack(side="right", padx=8)
+
+        self._update_project_bar()
+
         # 1. 상단 설정 바
         top_ctrl = ctk.CTkFrame(self, corner_radius=6)
         top_ctrl.pack(fill="x", padx=6, pady=(4, 6))
@@ -538,6 +561,20 @@ class AIVisionFrame(ctk.CTkFrame):
         # 변수 삽입 칩 버튼 영역 (Keep 아이템 추가 시 동적 생성)
         self.frm_var_chips = ctk.CTkFrame(left_f, fg_color="transparent")
         self.frm_var_chips.pack(fill="x", padx=8, pady=(0, 4))
+
+        # 태스크 제목 + 빌드 타입
+        task_meta = ctk.CTkFrame(left_f, fg_color="transparent")
+        task_meta.pack(fill="x", padx=8, pady=(0, 2))
+
+        ctk.CTkLabel(task_meta, text="태스크 제목", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 6))
+        self.ent_task_title = ctk.CTkEntry(task_meta, height=28, font=ctk.CTkFont(size=11), placeholder_text="예: 계약 목록 검색 및 필터링")
+        self.ent_task_title.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        self.var_build_type = ctk.StringVar(value="debug")
+        ctk.CTkRadioButton(task_meta, text="DEBUG", variable=self.var_build_type, value="debug",
+                           font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 6))
+        ctk.CTkRadioButton(task_meta, text="RELEASE", variable=self.var_build_type, value="release",
+                           font=ctk.CTkFont(size=11), text_color="#ffd54f").pack(side="left")
 
         # 실행 버튼
         self.btn_generate = ctk.CTkButton(
@@ -1254,9 +1291,128 @@ class AIVisionFrame(ctk.CTkFrame):
 
     def _on_generation_success(self, code: str, full_text: str, engine_name: str):
         self.btn_generate.configure(text="코드 생성", state="normal")
+
+        # 지문 수집
+        fp = self._collect_fingerprint(engine_name)
+        # 지문 헤더 주입
+        code_with_fp = self._build_fingerprint_header(fp) + "\n" + code
+
         self.txt_result_code.delete("1.0", "end")
-        self.txt_result_code.insert("1.0", code)
+        self.txt_result_code.insert("1.0", code_with_fp)
+
+        # DB 저장 (프로젝트가 설정된 경우)
+        self._save_task_to_db(fp, code_with_fp)
+
         messagebox.showinfo("완료", "코드가 생성되었습니다.")
+
+    def _collect_fingerprint(self, engine_name: str) -> dict:
+        """시스템 지문 정보 수집"""
+        import platform, socket, sys, datetime
+        playwright_ver = ""
+        try:
+            import playwright
+            playwright_ver = getattr(playwright, "__version__", "")
+        except Exception:
+            pass
+        model_str = ""
+        try:
+            if "Gemini" in engine_name:
+                model_str = self.cbo_gemini_model.get()
+            else:
+                model_str = self.cbo_ollama_model.get()
+        except Exception:
+            pass
+        return {
+            "ai_engine":    engine_name,
+            "ai_model":     model_str,
+            "generated_at": datetime.datetime.now(),
+            "build_type":   self.var_build_type.get(),
+            "task_title":   (self.ent_task_title.get().strip() or "(무제)"),
+            "sys_os":       platform.platform(),
+            "sys_hostname": socket.gethostname(),
+            "sys_python":   sys.version.split()[0],
+            "sys_user":     os.environ.get("USERNAME") or os.environ.get("USER") or "",
+            "sys_playwright": playwright_ver,
+            "project_name": self.current_project["name"] if self.current_project else "(오프라인)",
+        }
+
+    def _build_fingerprint_header(self, fp: dict) -> str:
+        """지문 주석 헤더 문자열 생성"""
+        gen_time = fp["generated_at"].strftime("%Y-%m-%d %H:%M:%S")
+        build_tag = fp["build_type"].upper()
+        line = "# " + "=" * 59
+        sep  = "# " + "-" * 39
+        lines = [
+            line,
+            "# [RPA Script Fingerprint]",
+            f"# Project   : {fp['project_name']}",
+            f"# Task      : {fp['task_title']}",
+            f"# Build     : {build_tag}",
+            sep,
+            f"# AI Engine : {fp['ai_engine']}",
+            f"# AI Model  : {fp['ai_model']}",
+            f"# Generated : {gen_time}",
+            sep,
+            f"# OS        : {fp['sys_os']}",
+            f"# Hostname  : {fp['sys_hostname']}",
+            f"# User      : {fp['sys_user']}",
+            f"# Python    : {fp['sys_python']}",
+            f"# Playwright: {fp['sys_playwright']}",
+            line,
+        ]
+        return "\n".join(lines)
+
+    def _save_task_to_db(self, fp: dict, code: str):
+        """생성된 태스크를 DB에 저장 (프로젝트 연결 시)"""
+        if not self.db or not self.current_project:
+            return
+        try:
+            prompt = self.txt_prompt.get("1.0", "end").strip()
+            pid = self.current_project["id"]
+            task_id = self.db.save_task(
+                project_id=pid,
+                title=fp["task_title"],
+                prompt_text=prompt,
+                script_code=code,
+                build_type=fp["build_type"],
+                ai_engine=fp["ai_engine"],
+                ai_model=fp["ai_model"],
+                generated_at=fp["generated_at"],
+                sys_os=fp["sys_os"],
+                sys_hostname=fp["sys_hostname"],
+                sys_python=fp["sys_python"],
+                sys_user=fp["sys_user"],
+                sys_playwright=fp["sys_playwright"],
+                status="draft"
+            )
+            self.db.touch_project(pid)
+            print(f"[DB] 태스크 저장 완료 task_id={task_id}")
+        except Exception as e:
+            print(f"[DB] 태스크 저장 실패: {e}")
+
+    def _update_project_bar(self):
+        """프로젝트 컨텍스트 바 라벨 갱신"""
+        try:
+            if self.current_project:
+                self.lbl_proj_name.configure(
+                    text=f"프로젝트: {self.current_project['name']}",
+                    text_color="#4caf50"
+                )
+            else:
+                self.lbl_proj_name.configure(text="[오프라인]", text_color="#888888")
+        except Exception:
+            pass
+
+    def _switch_project(self):
+        """프로젝트 전환 - 시작 모달 재호출"""
+        try:
+            from project_startup import show_startup_dialog
+            result = show_startup_dialog(self.winfo_toplevel(), self.db)
+            if result is not None:
+                self.current_project = result
+                self._update_project_bar()
+        except Exception as e:
+            messagebox.showwarning("프로젝트 전환", f"전환 실패: {e}")
 
     def _on_generation_error(self, err_msg: str):
         self.btn_generate.configure(text="코드 생성", state="normal")

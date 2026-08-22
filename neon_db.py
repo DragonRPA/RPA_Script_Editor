@@ -442,3 +442,378 @@ def robust_click(page, css_selector: str, uia_auto_id: str,
                 return list(cur.fetchall())
         finally:
             conn.close()
+
+    # =========================================================================
+    # 프로젝트 관리 — 테이블 초기화
+    # =========================================================================
+
+    def init_project_tables(self) -> bool:
+        """프로젝트 관리용 5개 테이블 자동 생성 (멱등성 보장)"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    -- ① 프로젝트 마스터
+                    CREATE TABLE IF NOT EXISTS rpa_projects (
+                        id          SERIAL PRIMARY KEY,
+                        name        VARCHAR(100) NOT NULL,
+                        description TEXT,
+                        status      VARCHAR(20) DEFAULT 'active',
+                        created_at  TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at  TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_rpa_projects_status ON rpa_projects(status);
+
+                    -- ② 프로젝트 대상 시스템 (URL / 윈도우 앱)
+                    CREATE TABLE IF NOT EXISTS rpa_targets (
+                        id          SERIAL PRIMARY KEY,
+                        project_id  INTEGER REFERENCES rpa_projects(id) ON DELETE CASCADE,
+                        type        VARCHAR(10) NOT NULL DEFAULT 'url',
+                        label       VARCHAR(100) NOT NULL,
+                        value       TEXT NOT NULL,
+                        login_id    VARCHAR(200),
+                        login_pw    VARCHAR(500),
+                        notes       TEXT,
+                        created_at  TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_rpa_targets_project ON rpa_targets(project_id);
+
+                    -- ③ Keep된 DOM/UI 요소
+                    CREATE TABLE IF NOT EXISTS rpa_keep_elements (
+                        id           SERIAL PRIMARY KEY,
+                        project_id   INTEGER REFERENCES rpa_projects(id) ON DELETE CASCADE,
+                        target_id    INTEGER REFERENCES rpa_targets(id) ON DELETE SET NULL,
+                        var_name     VARCHAR(100) NOT NULL,
+                        label        VARCHAR(200),
+                        selector     TEXT NOT NULL,
+                        element_type VARCHAR(30),
+                        path         TEXT,
+                        created_at   TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_rpa_keep_project ON rpa_keep_elements(project_id);
+
+                    -- ④ RPA 태스크 (자연어 지시문 + AI 생성 스크립트)
+                    CREATE TABLE IF NOT EXISTS rpa_tasks (
+                        id              SERIAL PRIMARY KEY,
+                        project_id      INTEGER REFERENCES rpa_projects(id) ON DELETE CASCADE,
+                        title           VARCHAR(200) NOT NULL,
+                        prompt_text     TEXT NOT NULL,
+                        script_code     TEXT,
+                        build_type      VARCHAR(10) DEFAULT 'debug',
+                        version_tag     VARCHAR(50),
+                        ai_engine       VARCHAR(50),
+                        ai_model        VARCHAR(100),
+                        generated_at    TIMESTAMPTZ,
+                        sys_os          VARCHAR(100),
+                        sys_hostname    VARCHAR(100),
+                        sys_python      VARCHAR(30),
+                        sys_user        VARCHAR(100),
+                        sys_playwright  VARCHAR(30),
+                        status          VARCHAR(20) DEFAULT 'draft',
+                        test_notes      TEXT,
+                        created_at      TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at      TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_rpa_tasks_project ON rpa_tasks(project_id);
+                    CREATE INDEX IF NOT EXISTS idx_rpa_tasks_status  ON rpa_tasks(status);
+
+                    -- ⑤ 태스크-요소 연결 (M:N)
+                    CREATE TABLE IF NOT EXISTS rpa_task_elements (
+                        task_id         INTEGER REFERENCES rpa_tasks(id) ON DELETE CASCADE,
+                        keep_element_id INTEGER REFERENCES rpa_keep_elements(id) ON DELETE CASCADE,
+                        PRIMARY KEY (task_id, keep_element_id)
+                    );
+                """)
+                conn.commit()
+                return True
+        finally:
+            conn.close()
+
+    # =========================================================================
+    # 프로젝트 CRUD
+    # =========================================================================
+
+    def create_project(self, name: str, description: str = "") -> int:
+        """새 프로젝트 생성 → project_id 반환"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO rpa_projects (name, description)
+                    VALUES (%s, %s) RETURNING id;
+                """, (name, description))
+                pid = cur.fetchone()["id"]
+                conn.commit()
+                return pid
+        finally:
+            conn.close()
+
+    def list_projects(self, active_only: bool = True) -> List[Dict[str, Any]]:
+        """프로젝트 목록 (최근 순)"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                sql = """
+                    SELECT id, name, description, status, created_at, updated_at
+                    FROM rpa_projects
+                    WHERE 1=1
+                """
+                if active_only:
+                    sql += " AND status = 'active'"
+                sql += " ORDER BY updated_at DESC;"
+                cur.execute(sql)
+                return [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def get_project(self, project_id: int) -> Optional[Dict[str, Any]]:
+        """프로젝트 단건 조회"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM rpa_projects WHERE id = %s;", (project_id,)
+                )
+                row = cur.fetchone()
+                return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def touch_project(self, project_id: int):
+        """프로젝트 updated_at 갱신"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE rpa_projects SET updated_at = NOW() WHERE id = %s;",
+                    (project_id,)
+                )
+                conn.commit()
+        finally:
+            conn.close()
+
+    # =========================================================================
+    # 대상 시스템 (rpa_targets) CRUD
+    # =========================================================================
+
+    def add_target(self, project_id: int, label: str, value: str,
+                   type_: str = "url", login_id: str = "",
+                   login_pw: str = "", notes: str = "") -> int:
+        """대상 시스템 추가 → target_id 반환"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO rpa_targets (project_id, type, label, value, login_id, login_pw, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                """, (project_id, type_, label, value, login_id, login_pw, notes))
+                tid = cur.fetchone()["id"]
+                conn.commit()
+                return tid
+        finally:
+            conn.close()
+
+    def list_targets(self, project_id: int) -> List[Dict[str, Any]]:
+        """프로젝트의 대상 시스템 목록"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, type, label, value, login_id, login_pw, notes, created_at
+                    FROM rpa_targets WHERE project_id = %s ORDER BY id;
+                """, (project_id,))
+                return [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def delete_target(self, target_id: int) -> bool:
+        """대상 시스템 삭제"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM rpa_targets WHERE id = %s RETURNING id;", (target_id,))
+                deleted = cur.fetchone() is not None
+                conn.commit()
+                return deleted
+        finally:
+            conn.close()
+
+    # =========================================================================
+    # Keep 요소 (rpa_keep_elements) CRUD
+    # =========================================================================
+
+    def save_keep_element(self, project_id: int, var_name: str, selector: str,
+                          label: str = "", element_type: str = "",
+                          path: str = "", target_id: Optional[int] = None) -> int:
+        """Keep 요소 저장 → element_id 반환"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO rpa_keep_elements
+                        (project_id, target_id, var_name, label, selector, element_type, path)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                """, (project_id, target_id, var_name, label, selector, element_type, path))
+                eid = cur.fetchone()["id"]
+                conn.commit()
+                return eid
+        finally:
+            conn.close()
+
+    def list_keep_elements(self, project_id: int,
+                           target_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """프로젝트의 Keep 요소 목록 (target_id 필터 옵션)"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                sql = """
+                    SELECT k.id, k.var_name, k.label, k.selector, k.element_type,
+                           k.path, k.target_id, t.label AS target_label, k.created_at
+                    FROM rpa_keep_elements k
+                    LEFT JOIN rpa_targets t ON t.id = k.target_id
+                    WHERE k.project_id = %s
+                """
+                params: list = [project_id]
+                if target_id is not None:
+                    sql += " AND k.target_id = %s"
+                    params.append(target_id)
+                sql += " ORDER BY k.id;"
+                cur.execute(sql, tuple(params))
+                return [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def delete_keep_element(self, element_id: int) -> bool:
+        """Keep 요소 삭제"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM rpa_keep_elements WHERE id = %s RETURNING id;", (element_id,)
+                )
+                deleted = cur.fetchone() is not None
+                conn.commit()
+                return deleted
+        finally:
+            conn.close()
+
+    # =========================================================================
+    # RPA 태스크 (rpa_tasks) CRUD
+    # =========================================================================
+
+    def save_task(self, project_id: int, title: str, prompt_text: str,
+                  script_code: str = "", build_type: str = "debug",
+                  version_tag: str = "", ai_engine: str = "", ai_model: str = "",
+                  generated_at=None, sys_os: str = "", sys_hostname: str = "",
+                  sys_python: str = "", sys_user: str = "", sys_playwright: str = "",
+                  status: str = "draft") -> int:
+        """RPA 태스크 저장 → task_id 반환"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO rpa_tasks (
+                        project_id, title, prompt_text, script_code,
+                        build_type, version_tag,
+                        ai_engine, ai_model, generated_at,
+                        sys_os, sys_hostname, sys_python, sys_user, sys_playwright,
+                        status
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    RETURNING id;
+                """, (
+                    project_id, title, prompt_text, script_code,
+                    build_type, version_tag,
+                    ai_engine, ai_model, generated_at,
+                    sys_os, sys_hostname, sys_python, sys_user, sys_playwright,
+                    status
+                ))
+                tid = cur.fetchone()["id"]
+                conn.commit()
+                return tid
+        finally:
+            conn.close()
+
+    def update_task_status(self, task_id: int, status: str,
+                           build_type: str = None, version_tag: str = None,
+                           test_notes: str = None) -> bool:
+        """태스크 상태/버전 업데이트"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                sets = ["status = %s", "updated_at = NOW()"]
+                params: list = [status]
+                if build_type is not None:
+                    sets.append("build_type = %s")
+                    params.append(build_type)
+                if version_tag is not None:
+                    sets.append("version_tag = %s")
+                    params.append(version_tag)
+                if test_notes is not None:
+                    sets.append("test_notes = %s")
+                    params.append(test_notes)
+                params.append(task_id)
+                cur.execute(
+                    f"UPDATE rpa_tasks SET {', '.join(sets)} WHERE id = %s;",
+                    tuple(params)
+                )
+                conn.commit()
+                return True
+        finally:
+            conn.close()
+
+    def list_tasks(self, project_id: int,
+                   status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """프로젝트의 태스크 목록"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                sql = """
+                    SELECT id, title, build_type, version_tag, status,
+                           ai_engine, ai_model, generated_at, created_at
+                    FROM rpa_tasks WHERE project_id = %s
+                """
+                params: list = [project_id]
+                if status:
+                    sql += " AND status = %s"
+                    params.append(status)
+                sql += " ORDER BY id DESC;"
+                cur.execute(sql, tuple(params))
+                return [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def get_task(self, task_id: int) -> Optional[Dict[str, Any]]:
+        """태스크 단건 전체 조회"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM rpa_tasks WHERE id = %s;", (task_id,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def link_task_elements(self, task_id: int, element_ids: List[int]):
+        """태스크에 사용된 Keep 요소 연결 기록"""
+        if not element_ids:
+            return
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                for eid in element_ids:
+                    cur.execute("""
+                        INSERT INTO rpa_task_elements (task_id, keep_element_id)
+                        VALUES (%s, %s) ON CONFLICT DO NOTHING;
+                    """, (task_id, eid))
+                conn.commit()
+        finally:
+            conn.close()
+
+    def load_project_context(self, project_id: int) -> Dict[str, Any]:
+        """프로젝트 전체 컨텍스트 일괄 로드 (targets + keep_elements + task 요약)"""
+        return {
+            "project":       self.get_project(project_id),
+            "targets":       self.list_targets(project_id),
+            "keep_elements": self.list_keep_elements(project_id),
+            "tasks":         self.list_tasks(project_id),
+        }

@@ -19,6 +19,8 @@ import customtkinter as ctk
 from snippets_library import SNIPPET_CATEGORIES
 from playwright_parser import parse_advanced_python_to_scenario
 from neon_db import NeonDBManager
+from ai_vision_agent import AIVisionFrame, open_ai_vision_generator
+
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -106,9 +108,27 @@ class RecorderGUI(ctk.CTk):
         # 봇 파이프라인 데이터 모델 (모듈 카드들의 리스트)
         self.bot_modules: List[Dict[str, Any]] = []
         self.db_manager = NeonDBManager(self._load_neon_url())
+        self.current_project: Optional[Dict[str, Any]] = None
 
         self._build_ui()
         self._load_default_bot_template()
+
+        # 시작 모달 — UI 구성 완료 후 표시
+        self.after(200, self._show_startup_dialog)
+
+    def _show_startup_dialog(self):
+        """앱 시작 시 프로젝트 선택 모달 표시"""
+        try:
+            from project_startup import show_startup_dialog
+            result = show_startup_dialog(self, self.db_manager)
+            self.current_project = result
+            # vision_frame에 프로젝트 컨텍스트 전달
+            if hasattr(self, "vision_frame"):
+                self.vision_frame.current_project = result
+                self.vision_frame.db = self.db_manager
+                self.vision_frame._update_project_bar()
+        except Exception as e:
+            print(f"[Startup] 프로젝트 모달 오류: {e}")
 
     @property
     def txt_script_editor(self):
@@ -119,14 +139,36 @@ class RecorderGUI(ctk.CTk):
         self.tabview = ctk.CTkTabview(self, corner_radius=6)
         self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
 
-        self.tab_script = self.tabview.add("🐍 파이썬 스크립트 에디터 (스니펫 지원)")
-        self.tab_bot = self.tabview.add("🤖 봇 에디터 (Bot Builder)")
+        self.tab_vision = self.tabview.add("AI 비전 코드 생성")
+        self.tab_script = self.tabview.add("파이썬 스크립트 에디터")
+        self.tab_bot = self.tabview.add("봇 에디터")
 
+        self._build_vision_tab()
         self._build_script_tab()
         self._build_bot_tab()
 
     # =========================================================================
-    # 탭 1: 스크립트 코드 에디터 (IDE)
+    # 탭 1: AI 비전 코드 생성
+    # =========================================================================
+    def _build_vision_tab(self):
+        def _switch_tab(tab_name):
+            if tab_name == "script":
+                self.tabview.set("파이썬 스크립트 에디터")
+            elif tab_name == "bot":
+                self.tabview.set("봇 에디터")
+
+        self.vision_frame = AIVisionFrame(
+            self.tab_vision,
+            on_insert_code=lambda code: self.insert_snippet_code(code),
+            on_add_to_bot=lambda mod: self._add_module_to_bot(mod),
+            on_switch_tab=_switch_tab,
+            project=self.current_project,
+            db_manager=self.db_manager
+        )
+        self.vision_frame.pack(fill="both", expand=True, padx=2, pady=2)
+
+    # =========================================================================
+    # 탭 2: 스크립트 코드 에디터 (IDE)
     # =========================================================================
     def _build_script_tab(self):
         # 0. 대상 URL 설정 행
@@ -136,13 +178,13 @@ class RecorderGUI(ctk.CTk):
         ctk.CTkLabel(url_bar, text="대상 URL", font=ctk.CTkFont(size=12, weight="bold"),
                      width=60).pack(side="left", padx=(10, 6), pady=8)
         self.entry_script_url = ctk.CTkEntry(
-            url_bar, height=32, placeholder_text="예: http://175.119.156.105:3000  또는  https://www.example.com"
+            url_bar, height=32, font=ctk.CTkFont(size=11), placeholder_text="예: http://175.119.156.105:3000"
         )
         self.entry_script_url.pack(side="left", fill="x", expand=True, padx=(0, 6), pady=6)
         self.entry_script_url.insert(0, self._load_script_url())
 
         btn_save_url = ctk.CTkButton(
-            url_bar, text="URL 저장", width=80, height=32,
+            url_bar, text="URL 저장", width=80, height=32, font=ctk.CTkFont(size=11),
             fg_color="#2e7d32", hover_color="#1b5e20", command=self._save_script_url
         )
         btn_save_url.pack(side="left", padx=(0, 8), pady=6)
@@ -152,62 +194,63 @@ class RecorderGUI(ctk.CTk):
         top_bar.pack(fill="x", padx=6, pady=(4, 6))
 
         self.btn_run_script = ctk.CTkButton(
-            top_bar, text="▶ 코드 테스트 실행", width=140, height=34,
-            fg_color="#2e7d32", hover_color="#1b5e20", font=ctk.CTkFont(weight="bold"),
+            top_bar, text="코드 실행", width=110, height=34,
+            fg_color="#2e7d32", hover_color="#1b5e20", font=ctk.CTkFont(size=11, weight="bold"),
             command=self.run_current_script
         )
-        self.btn_run_script.pack(side="left", padx=8, pady=6)
+        self.btn_run_script.pack(side="left", padx=6, pady=6)
 
         btn_codegen = ctk.CTkButton(
-            top_bar, text="Playwright 인스펙터", width=160, height=34,
+            top_bar, text="인스펙터", width=95, height=34, font=ctk.CTkFont(size=11),
             fg_color="#1f6aa5", hover_color="#144d75", command=self.launch_codegen
         )
         btn_codegen.pack(side="left", padx=4, pady=6)
 
         btn_win_spy = ctk.CTkButton(
-            top_bar, text="🔍 Windows UIA Spy", width=160, height=34,
-            fg_color="#4a148c", hover_color="#311b92", font=ctk.CTkFont(weight="bold"),
+            top_bar, text="Windows Spy", width=110, height=34,
+            fg_color="#4a148c", hover_color="#311b92", font=ctk.CTkFont(size=11, weight="bold"),
             command=self.open_windows_spy
         )
         btn_win_spy.pack(side="left", padx=4, pady=6)
 
         btn_ai_vision = ctk.CTkButton(
-            top_bar, text="🤖 AI 비전 코드 생성", width=170, height=34,
-            fg_color="#00695c", hover_color="#004d40", font=ctk.CTkFont(weight="bold"),
+            top_bar, text="AI 비전 코드 생성", width=140, height=34,
+            fg_color="#00695c", hover_color="#004d40", font=ctk.CTkFont(size=11, weight="bold"),
             command=self.open_ai_vision_generator
         )
         btn_ai_vision.pack(side="left", padx=4, pady=6)
 
         btn_convert_to_bot = ctk.CTkButton(
-            top_bar, text="🧩 봇 모듈 변환", width=140, height=34,
-            fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(weight="bold"),
+            top_bar, text="봇 모듈 변환", width=110, height=34,
+            fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(size=11, weight="bold"),
             command=self._convert_script_to_bot_modules
         )
         btn_convert_to_bot.pack(side="left", padx=4, pady=6)
 
         btn_db_modules = ctk.CTkButton(
-            top_bar, text="☁️ DB 모듈", width=100, height=34,
+            top_bar, text="DB 모듈", width=85, height=34, font=ctk.CTkFont(size=11),
             fg_color="#6a1b9a", hover_color="#4a148c", command=self._open_db_modules_modal
         )
         btn_db_modules.pack(side="left", padx=4, pady=6)
 
         btn_save_py = ctk.CTkButton(
-            top_bar, text="💾 파이썬 저장", width=110, height=34,
+            top_bar, text="파일 저장", width=90, height=34, font=ctk.CTkFont(size=11),
             fg_color="#3a3a3a", hover_color="#222222", command=self.save_python_file
         )
         btn_save_py.pack(side="right", padx=(4, 8), pady=6)
 
         btn_load_py = ctk.CTkButton(
-            top_bar, text="📂 파일 불러오기", width=120, height=34,
+            top_bar, text="파일 열기", width=90, height=34, font=ctk.CTkFont(size=11),
             fg_color="#444444", hover_color="#333333", command=self.load_python_file
         )
         btn_load_py.pack(side="right", padx=4, pady=6)
 
         btn_reset_py = ctk.CTkButton(
-            top_bar, text="기본 예제 복원", width=100, height=34,
+            top_bar, text="예제 복원", width=90, height=34, font=ctk.CTkFont(size=11),
             fg_color="#555555", hover_color="#333333", command=self.reset_python_code
         )
         btn_reset_py.pack(side="right", padx=4, pady=6)
+
 
         # 2. 본문 2분할 (좌: 스니펫 라이브러리 / 우: 코드 에디터 + 콘솔)
         body_frame = ctk.CTkFrame(self.tab_script, corner_radius=6)
@@ -1094,13 +1137,9 @@ class RecorderGUI(ctk.CTk):
         )
 
     def open_ai_vision_generator(self):
-        """Google Gemini Vision AI 코드 & 셀렉터 생성기 창 열기"""
-        from ai_vision_agent import open_ai_vision_generator
-        open_ai_vision_generator(
-            self,
-            on_insert=lambda code: self.insert_snippet_code(code),
-            on_add_bot=lambda mod: self._add_module_to_bot(mod)
-        )
+        """AI 비전 코드 생성기 탭으로 즉시 전환 (새 모달 팝업 없이 탭 전환)"""
+        self.tabview.set("🤖 AI 비전 & DOM 분석기")
+
 
 
 
