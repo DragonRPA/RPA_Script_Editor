@@ -1042,14 +1042,26 @@ class AIVisionFrame(ctk.CTkFrame):
             return
 
         for idx, item in enumerate(self.keep_list):
+            ktype = item.get("keep_type", "element")
             row = ctk.CTkFrame(self.frm_keep_panel, fg_color="#252525", corner_radius=4, cursor="hand2")
             row.pack(fill="x", pady=2, padx=2)
 
             vname = item["var_name"]
+            # 배지 및 색상: URL(시안블루), Data(연초록), Element(골드노랑)
+            if ktype == "target_url":
+                badge_prefix = "[URL] "
+                color_var = "#29b6f6"
+            elif ktype == "data_column":
+                badge_prefix = "[DATA] "
+                color_var = "#81c784"
+            else:
+                badge_prefix = ""
+                color_var = "#ffd54f"
+
             lbl_var = ctk.CTkLabel(
-                row, text=f"  {{{vname}}}",
+                row, text=f"  {badge_prefix}{{{vname}}}",
                 font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
-                text_color="#ffd54f", anchor="w", cursor="hand2"
+                text_color=color_var, anchor="w", cursor="hand2"
             )
             lbl_var.pack(side="left", fill="x", expand=True)
 
@@ -1076,9 +1088,13 @@ class AIVisionFrame(ctk.CTkFrame):
                 removed = self.keep_list.pop(i)
                 if getattr(self, "db", None) and removed.get("id"):
                     try:
-                        self.db.delete_keep_element(removed["id"])
+                        if removed.get("keep_type") == "target_url":
+                            self.db.delete_target(removed["id"])
+                            self._refresh_target_urls()
+                        else:
+                            self.db.delete_keep_element(removed["id"])
                     except Exception as e:
-                        print(f"DB Keep 삭제 에러: {e}")
+                        print(f"DB 삭제 에러: {e}")
                 self._render_keep_list()
                 self._render_var_chips()
             ctk.CTkButton(
@@ -1174,6 +1190,11 @@ class AIVisionFrame(ctk.CTkFrame):
     # ── 요소 타입 → 가능한 액션 매핑 ─────────────────────────────────────────
     _ELEM_ACTIONS = {
         # element_type 키워드 → [(표시 라벨, 삽입 문장 템플릿)]
+        "url": [
+            ("페이지 이동", "{var} 주소로 브라우저 이동"),
+            ("새 탭에서 열기", "새 탭을 열고 {var}로 접속"),
+            ("URL 일치 확인", "현재 페이지가 {var}인지 확인"),
+        ],
         "input":    [
             ("값 입력",     "{var}에 '{값}'을 입력"),
             ("내용 지우기", "{var}의 내용을 지우기"),
@@ -1600,10 +1621,18 @@ class AIVisionFrame(ctk.CTkFrame):
         """Keep 목록 + 데이터 소스를 포함한 확장 프롬프트 생성"""
         lines = []
 
+        # ⓪ 대상 URL / 시스템 (target_url 타입)
+        url_items = [it for it in self.keep_list if it.get("keep_type") == "target_url"]
+        if url_items:
+            lines.append("[대상 URL / 시스템]")
+            for item in url_items:
+                lines.append(f"  {{{item['var_name']}}} = url: \"{item['selector']}\" (label: \"{item['label']}\")")
+            lines.append("")
+
         # ① DOM/UI 요소 Keep (element 타입)
         elem_items = [it for it in self.keep_list if it.get("keep_type", "element") == "element"]
         if elem_items:
-            lines.append("[고정 참조 객체 — DOM/UI 요소]")
+            lines.append("[고정 참조 객체 - DOM/UI 요소]")
             for item in elem_items:
                 etype = item.get("element_type", "")
                 lines.append(f"  {{{item['var_name']}}} = selector: \"{item['selector']}\" | type: {etype}")
@@ -1634,8 +1663,10 @@ class AIVisionFrame(ctk.CTkFrame):
         lines.append("")
 
         # ④ 코드 생성 지침
-        if elem_items or data_items:
+        if url_items or elem_items or data_items:
             lines.append("[코드 생성 지침]")
+            if url_items:
+                lines.append("  - [대상 URL / 시스템]의 변수명을 page.goto() 또는 시작 접속 URL로 활용할 것")
             if elem_items:
                 lines.append("  - [고정 참조 객체]의 변수명을 실제 Playwright 셀렉터로 대응할 것")
             if data_items:
@@ -1827,12 +1858,44 @@ class AIVisionFrame(ctk.CTkFrame):
             print(f"[DB] 태스크 저장 실패: {e}")
 
     def _load_project_keep_elements(self):
-        """DB에서 현재 프로젝트의 Keep 요소 목록 불러오기"""
+        """DB에서 현재 프로젝트의 Target URL 및 Keep 요소 목록 불러오기"""
         if not self.db or not self.current_project:
             return
         try:
-            items = self.db.list_keep_elements(self.current_project["id"])
+            pid = self.current_project["id"]
             self.keep_list = []
+
+            # 1. Target URL (rpa_targets) 먼저 로드
+            from urllib.parse import urlparse
+            targets = self.db.list_targets(pid)
+            for idx, t in enumerate(targets):
+                val = t.get("value") or t.get("label") or ""
+                lbl = t.get("label") or val
+                if lbl and not lbl.startswith("http"):
+                    vname = f"url_{lbl}"
+                else:
+                    try:
+                        p = urlparse(val).path.strip("/").replace("/", "_").replace("-", "_")
+                        vname = f"url_{p}" if p else f"url_{idx+1}"
+                    except Exception:
+                        vname = f"url_{idx+1}"
+
+                self.keep_list.append({
+                    "id": t.get("id"),
+                    "var_name": vname,
+                    "label": lbl,
+                    "selector": val,
+                    "element_type": "url",
+                    "path": val,
+                    "keep_type": "target_url",
+                    "target_id": t.get("id"),
+                    "column_name": "",
+                    "data_type": "",
+                    "source_file": ""
+                })
+
+            # 2. Keep Elements (rpa_keep_elements) 로드
+            items = self.db.list_keep_elements(pid)
             for itm in items:
                 self.keep_list.append({
                     "id": itm.get("id"),
@@ -1842,6 +1905,7 @@ class AIVisionFrame(ctk.CTkFrame):
                     "element_type": itm.get("element_type") or "element",
                     "path": itm.get("path") or "",
                     "keep_type": itm.get("keep_type") or "element",
+                    "target_id": itm.get("target_id"),
                     "column_name": itm.get("column_name") or "",
                     "data_type": itm.get("data_type") or "",
                     "source_file": itm.get("source_file") or ""
@@ -1966,6 +2030,7 @@ class AIVisionFrame(ctk.CTkFrame):
                     type_="url"
                 )
                 self._refresh_target_urls()
+                self._load_project_keep_elements()
                 from tkinter import messagebox
                 messagebox.showinfo("URL 저장", "현재 URL이 프로젝트 대상 목록에 저장되었습니다.")
             else:
