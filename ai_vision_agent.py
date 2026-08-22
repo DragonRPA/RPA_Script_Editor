@@ -318,6 +318,14 @@ class AIVisionFrame(ctk.CTkFrame):
         self._load_saved_configs()
         self._refresh_window_list()
 
+    def _safe_after(self, ms: int, func):
+        """스레드 종료 시 위젯 소멸로 인한 RuntimeError 방어"""
+        try:
+            if self.winfo_exists():
+                self.after(ms, func)
+        except Exception:
+            pass
+
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=0)
@@ -690,7 +698,7 @@ class AIVisionFrame(ctk.CTkFrame):
         def _worker():
             try:
                 info = DOMHarvester.check_cdp_available()
-                self.after(0, lambda i=info: self._on_cdp_check_done(i))
+                self._safe_after(0, lambda i=info: self._on_cdp_check_done(i))
                 res = DOMHarvester.harvest_live_dom(
                     url=url,
                     hwnd=target_hwnd,
@@ -698,9 +706,9 @@ class AIVisionFrame(ctk.CTkFrame):
                     browser_type=chosen_browser,
                     timeout_sec=15
                 )
-                self.after(0, lambda r=res: self._on_harvest_success(r))
+                self._safe_after(0, lambda r=res: self._on_harvest_success(r))
             except Exception as e:
-                self.after(0, lambda err=str(e): self._on_harvest_error(err))
+                self._safe_after(0, lambda err=str(e): self._on_harvest_error(err))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -714,7 +722,7 @@ class AIVisionFrame(ctk.CTkFrame):
 
         def _worker():
             info = DOMHarvester.check_cdp_available()
-            self.after(0, lambda i=info: self._on_cdp_check_done(i))
+            self._safe_after(0, lambda i=info: self._on_cdp_check_done(i))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -2055,9 +2063,9 @@ class AIVisionFrame(ctk.CTkFrame):
                         page_html=catalog_summary,
                         browser_choice=chosen_browser
                     )
-                    self.after(0, lambda c=code, f=full_text: self._on_generation_success(c, f, "Gemini"))
+                    self._safe_after(0, lambda c=code, f=full_text: self._on_generation_success(c, f, "Gemini"))
                 except Exception as e:
-                    self.after(0, lambda err=str(e): self._on_generation_error(err))
+                    self._safe_after(0, lambda err=str(e): self._on_generation_error(err))
 
             threading.Thread(target=_worker_gemini, daemon=True).start()
 
@@ -2079,9 +2087,9 @@ class AIVisionFrame(ctk.CTkFrame):
                         page_html=catalog_summary,
                         browser_choice=chosen_browser
                     )
-                    self.after(0, lambda c=code, f=full_text: self._on_generation_success(c, f, f"Ollama ({model})"))
+                    self._safe_after(0, lambda c=code, f=full_text: self._on_generation_success(c, f, f"Ollama ({model})"))
                 except Exception as e:
-                    self.after(0, lambda err=str(e): self._on_generation_error(err))
+                    self._safe_after(0, lambda err=str(e): self._on_generation_error(err))
 
             threading.Thread(target=_worker_ollama, daemon=True).start()
 

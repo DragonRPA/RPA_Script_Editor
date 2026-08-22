@@ -93,19 +93,33 @@ class ProjectStartupDialog(ctk.CTkToplevel):
         ).pack(pady=(0, 8))
 
     def _load_projects(self):
+        def _safe_after(func):
+            try:
+                if self.winfo_exists():
+                    self.after(0, func)
+            except Exception:
+                pass
+
         def _worker():
             if not self.db:
-                self.after(0, lambda: self._on_load_done([], db_ok=False))
+                _safe_after(lambda: self._on_load_done([], db_ok=False))
                 return
             try:
                 self.db.init_project_tables()
                 projects = self.db.list_projects(active_only=True)
-                self.after(0, lambda p=projects: self._on_load_done(p, db_ok=True))
+                _safe_after(lambda p=projects: self._on_load_done(p, db_ok=True))
             except Exception as e:
-                self.after(0, lambda err=str(e): self._on_load_done([], db_ok=False, err=err))
+                _safe_after(lambda err=str(e): self._on_load_done([], db_ok=False, err=err))
+
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_load_done(self, projects: list, db_ok: bool, err: str = ""):
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
+
         if db_ok:
             self.lbl_db_status.configure(text="● DB 연결됨", text_color="#4caf50")
         else:
