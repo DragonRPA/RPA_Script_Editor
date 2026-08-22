@@ -1,6 +1,23 @@
 # RELEASE_NOTES.md
 
-## [v2.4.4.Build.26] - 2026-08-22 14:13
+## [v2.4.5.Build.27] - 2026-08-22 14:19
+
+### 🚀 [8단계 계층적 역추적 조상 탐색 탑재] HTML 다층 텍스트 & 속성 심층 크롤러 탑재
+
+1. **8단계 계층적 역추적 조상 탐색 (Upward Ancestor Crawler)**:
+   - 직전 형제/부모에 텍스트가 없을 경우, 상위 조상(Grandparent ~ 최대 6단계 상위 블록)을 단계별로 타고 올라가며 해당 폼/카드 블록의 헤더 및 레이블을 끝까지 추적하여 발굴
+2. **다차원 텍스트/의미 메커니즘 전수 지원**:
+   - **Tier 1 (AOM)**: `aria-label`, `aria-labelledby` (참조 ID 텍스트 동적 역참조)
+   - **Tier 2/3 (Label)**: 명시적 `<label for="...">`, 직계 감싸는 `<label>`
+   - **Tier 4 (UI Frameworks)**: Bootstrap `.input-group-text`, AntDesign `.ant-form-item-label`, Vue `.v-label`
+   - **Tier 5 (Horizontal Sibling)**: 직전 형제(Previous Sibling) 텍스트 체인 순회
+   - **Tier 6 (Table 2D Grid)**: 동일 행의 `<th>`/`<td>` 및 `<thead>`의 컬럼 헤더 2차원 좌표 매핑
+   - **Tier 7 (Upward Hierarchy)**: 상위 조상 컨테이너(Row/Col/Fieldset/Legend) 역추적
+   - **Tier 8 (HTML5 Attributes)**: `placeholder`, `title`, `data-label`, `data-field`, `data-title`
+
+---
+
+
 
 ### 🎯 [시각적 라벨 매핑 고도화] Bootstrap `.input-group-text` 및 인접 텍스트 라벨 자동 인식 탑재
 
