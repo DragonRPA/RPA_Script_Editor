@@ -306,9 +306,13 @@ class AIVisionFrame(ctk.CTkFrame):
         self._refresh_window_list()
 
     def _build_ui(self):
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=0)
+        self.grid_rowconfigure(1, weight=0)
+        self.grid_rowconfigure(2, weight=1)
         # 프로젝트 컨텍스트 바 (최상단) 고정
         proj_bar = ctk.CTkFrame(self, fg_color="#111111", corner_radius=0, height=32)
-        proj_bar.pack(fill="x", padx=0, pady=(0, 2))
+        proj_bar.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, 2))
         proj_bar.pack_propagate(False)
 
         self.lbl_proj_name = ctk.CTkLabel(
@@ -327,7 +331,7 @@ class AIVisionFrame(ctk.CTkFrame):
 
         # 1. 상단 글로벌 컨트롤 바 (AI 설정 + 대상 URL/창)
         top_ctrl = ctk.CTkFrame(self, corner_radius=6)
-        top_ctrl.pack(fill="x", padx=6, pady=(4, 2))
+        top_ctrl.grid(row=1, column=0, sticky="ew", padx=6, pady=(4, 2))
 
         # 좌우 분할을 위해 grid 사용 (더 깔끔한 정렬)
         top_ctrl.grid_columnconfigure(0, weight=0, minsize=420)
@@ -415,7 +419,7 @@ class AIVisionFrame(ctk.CTkFrame):
 
         # 2. 본문 3분할 (좌: 리소스 / 중: 프롬프트&Keep / 우: 코드 결과)
         body = ctk.CTkFrame(self, corner_radius=6)
-        body.pack(fill="both", expand=True, padx=6, pady=2)
+        body.grid(row=2, column=0, sticky="nsew", padx=6, pady=2)
         
         # 3-Column Grid Configuration
         body.grid_columnconfigure(0, weight=1, minsize=300) # Col 0: DOM / Data
