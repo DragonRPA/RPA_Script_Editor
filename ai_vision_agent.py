@@ -99,17 +99,15 @@ class GeminiVisionAgent:
         if not api_key:
             raise ValueError("Google Gemini API Key가 설정되지 않았습니다.")
 
-        if not os.path.exists(image_path):
-            raise FileNotFoundError(f"이미지 파일을 찾을 수 없습니다: {image_path}")
-
-        with open(image_path, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode("utf-8")
-
+        img_b64 = None
         mime_type = "image/png"
-        if image_path.lower().endswith(".jpg") or image_path.lower().endswith(".jpeg"):
-            mime_type = "image/jpeg"
-        elif image_path.lower().endswith(".webp"):
-            mime_type = "image/webp"
+        if image_path and os.path.exists(image_path):
+            with open(image_path, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode("utf-8")
+            if image_path.lower().endswith(".jpg") or image_path.lower().endswith(".jpeg"):
+                mime_type = "image/jpeg"
+            elif image_path.lower().endswith(".webp"):
+                mime_type = "image/webp"
 
         prompt_text = ""
         if target_url:
@@ -119,19 +117,26 @@ class GeminiVisionAgent:
         if page_html:
             prompt_text += f"[UI 객체 목록]\n{page_html[:4500]}\n\n"
         prompt_text += f"[요구사항]\n{user_prompt}\n\n"
-        prompt_text += "위 화면 스크린샷과 UI 객체 목록, 요구사항을 바탕으로 Playwright 코드를 작성하십시오."
-
-        parts = [
-            {
-                "inline_data": {
-                    "mime_type": mime_type,
-                    "data": img_b64
+        if img_b64:
+            prompt_text += "위 화면 스크린샷과 UI 객체 목록, 요구사항을 바탕으로 Playwright 코드를 작성하십시오."
+            parts = [
+                {
+                    "inline_data": {
+                        "mime_type": mime_type,
+                        "data": img_b64
+                    }
+                },
+                {
+                    "text": prompt_text
                 }
-            },
-            {
-                "text": prompt_text
-            }
-        ]
+            ]
+        else:
+            prompt_text += "위 UI 객체 목록과 요구사항을 바탕으로 Playwright 코드를 작성하십시오."
+            parts = [
+                {
+                    "text": prompt_text
+                }
+            ]
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
         headers = {"Content-Type": "application/json"}
@@ -1033,9 +1038,8 @@ class AIVisionFrame(ctk.CTkFrame):
     # AI 코드 생성
     # =========================================================================
     def _start_ai_generation(self):
-        if not self.current_image_path or not os.path.exists(self.current_image_path):
-            messagebox.showwarning("입력 확인", "타겟 화면 이미지를 지정하십시오.")
-            return
+        image_valid = self.current_image_path and os.path.exists(self.current_image_path)
+        img_path_arg = self.current_image_path if image_valid else None
 
         prompt = self.txt_prompt.get("1.0", "end").strip()
         if not prompt:
@@ -1063,7 +1067,7 @@ class AIVisionFrame(ctk.CTkFrame):
                 try:
                     code, full_text = GeminiVisionAgent.call_gemini_vision(
                         api_key=api_key,
-                        image_path=self.current_image_path,
+                        image_path=img_path_arg,
                         user_prompt=prompt,
                         target_url=target_url,
                         model=model,
@@ -1088,7 +1092,7 @@ class AIVisionFrame(ctk.CTkFrame):
                     code, full_text = OllamaVisionAgent.call_ollama_vision(
                         ollama_url=ollama_url,
                         model=model,
-                        image_path=self.current_image_path,
+                        image_path=img_path_arg,
                         user_prompt=prompt,
                         target_url=target_url,
                         page_html=catalog_summary,
