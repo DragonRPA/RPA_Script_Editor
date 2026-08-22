@@ -626,7 +626,7 @@ class AIVisionFrame(ctk.CTkFrame):
     def _start_harvest_dom(self):
         url = self.ent_target_url.get().strip()
         selected_win_title = self.cbo_windows.get()
-        chosen_browser = self.seg_browser.get()
+        chosen_browser = "Chrome"
 
         # 선택된 창의 HWND 탐색
         target_hwnd = 0
@@ -1046,7 +1046,7 @@ class AIVisionFrame(ctk.CTkFrame):
             return
 
         target_url = self.ent_target_url.get().strip() or self.cbo_windows.get()
-        chosen_browser = self.seg_browser.get()
+        chosen_browser = "Chrome"
         catalog_summary = DOMHarvester.format_catalog_to_text(self.current_catalog)
         engine_choice = self.seg_engine.get()
 
@@ -1226,7 +1226,7 @@ class AIVisionFrame(ctk.CTkFrame):
             "last_ai_engine": self.seg_engine.get(),
             "last_gemini_model": self.cbo_gemini_model.get(),
             "last_ollama_model": self.cbo_ollama_model.get(),
-            "last_browser_choice": self.seg_browser.get()
+            "last_browser_choice": "Chrome"
         }
 
         for cfg_path in [
