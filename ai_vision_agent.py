@@ -1417,109 +1417,127 @@ class AIVisionFrame(ctk.CTkFrame):
         pop = ctk.CTkToplevel(self)
         pop.title("헤더 선택 — Keep 추가")
         pop.attributes("-topmost", True)
-        pop.geometry("560x400")
+        pop.geometry("740x520")
         pop.configure(fg_color="#1a1a1a")
 
-        # 헤더
-        hdr = ctk.CTkFrame(pop, fg_color="#0d2137", corner_radius=0)
-        hdr.pack(fill="x")
+        # 상단 헤더 바
+        fname = loader.file_path.replace(chr(92), '/').split('/')[-1]
+        hdr = ctk.CTkFrame(pop, fg_color="#0d2137", corner_radius=4)
+        hdr.pack(fill="x", padx=6, pady=6)
         ctk.CTkLabel(
-            hdr, text=f"  {loader.file_path.replace(chr(92), '/').split('/')[-1]}  ·  {len(headers_info)}컬럼  ·  {len(loader.rows)}행",
+            hdr, text=f"  {fname}  ·  {len(headers_info)}컬럼  ·  {len(loader.rows)}행",
             font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6", anchor="w"
         ).pack(side="left", padx=8, pady=8)
-        ctk.CTkButton(hdr, text="✕", width=28, height=28, fg_color="transparent",
-                      hover_color="#333", command=pop.destroy).pack(side="right", padx=6)
+
+        # 전체 Keep 추가 함수
+        row_widgets = []
+
+        def _keep_all():
+            added_count = 0
+            for info_, ent_, btn_ in row_widgets:
+                vname = ent_.get().strip()
+                if not vname:
+                    continue
+                if any(x.get("var_name") == vname for x in self.keep_list):
+                    continue
+                item_dict = {
+                    "keep_type":    "data_column",
+                    "var_name":     vname,
+                    "column_name":  info_["name"],
+                    "data_type":    info_["inferred_type"],
+                    "source_file":  self.data_source_path,
+                    "label":        info_["name"],
+                    "selector":     "",
+                    "element_type": "data_column",
+                    "path":         "",
+                }
+                if getattr(self, "db", None) and getattr(self, "current_project", None):
+                    try:
+                        eid = self.db.save_keep_element(
+                            project_id=self.current_project["id"],
+                            var_name=vname,
+                            keep_type="data_column",
+                            column_name=info_["name"],
+                            data_type=info_["inferred_type"],
+                            source_file=self.data_source_path,
+                            label=info_["name"]
+                        )
+                        item_dict["id"] = eid
+                    except Exception as e:
+                        print(f"DB Keep 에러: {e}")
+                self.keep_list.append(item_dict)
+                btn_.configure(text="✓ 추가됨", fg_color="#2e7d32")
+                added_count += 1
+            self._render_keep_list()
+            self._render_var_chips()
+            self._render_data_chips()
+            if added_count > 0:
+                messagebox.showinfo("Keep 추가 완료", f"{added_count}개 컬럼이 Keep 목록에 추가되었습니다.")
+
+        btn_all_top = ctk.CTkButton(
+            hdr, text="✓ 전체 컬럼 Keep 추가", height=28,
+            font=ctk.CTkFont(size=11, weight="bold"), fg_color="#2e7d32", hover_color="#1b5e20",
+            command=_keep_all
+        )
+        btn_all_top.pack(side="right", padx=8, pady=6)
 
         # 컬럼 헤더 행 제목
         col_hdr = ctk.CTkFrame(pop, fg_color="#111111", corner_radius=0)
-        col_hdr.pack(fill="x")
-        for txt, w in [("컬럼명", 160), ("샘플 값", 140), ("타입", 60), ("변수명 ({row.})", 130), ("", 60)]:
-            ctk.CTkLabel(col_hdr, text=txt, width=w, font=ctk.CTkFont(size=11, weight="bold"),
-                         text_color="#888", anchor="w").pack(side="left", padx=4, pady=4)
+        col_hdr.pack(fill="x", padx=6)
+        ctk.CTkLabel(col_hdr, text="컬럼명", width=160, font=ctk.CTkFont(size=11, weight="bold"), text_color="#888", anchor="w").pack(side="left", padx=6, pady=4)
+        ctk.CTkLabel(col_hdr, text="샘플 값", width=130, font=ctk.CTkFont(size=11, weight="bold"), text_color="#888", anchor="w").pack(side="left", padx=4)
+        ctk.CTkLabel(col_hdr, text="타입", width=50, font=ctk.CTkFont(size=11, weight="bold"), text_color="#888", anchor="w").pack(side="left", padx=4)
+        ctk.CTkLabel(col_hdr, text="변수명 ({row.})", width=160, font=ctk.CTkFont(size=11, weight="bold"), text_color="#888", anchor="w").pack(side="left", padx=4)
+        ctk.CTkLabel(col_hdr, text="선택 작업", width=80, font=ctk.CTkFont(size=11, weight="bold"), text_color="#888", anchor="e").pack(side="right", padx=10)
 
         # 스크롤 목록
         sf = ctk.CTkScrollableFrame(pop, fg_color="transparent")
-        sf.pack(fill="both", expand=True, padx=4, pady=4)
+        sf.pack(fill="both", expand=True, padx=6, pady=4)
 
         # 이미 Keep된 data_column var_name 집합
         already_kept = {
-            itm["var_name"] for itm in self.keep_list
+            itm.get("var_name") for itm in self.keep_list
             if itm.get("keep_type") == "data_column"
         }
 
         for info in headers_info:
-            row_f = ctk.CTkFrame(sf, fg_color="#1e1e1e", corner_radius=4)
-            row_f.pack(fill="x", pady=1)
+            row_f = ctk.CTkFrame(sf, fg_color="#1e1e1e", corner_radius=4, height=36)
+            row_f.pack(fill="x", pady=2)
+            row_f.pack_propagate(False)
 
             var_name_default = f"row.{info['var_name']}"
             is_kept = var_name_default in already_kept
 
-            # 컬럼명
+            # 1. 우측 Keep 버튼을 먼저 pack(side="right")하여 공간 100% 확보
+            btn_text = "✓ 추가됨" if is_kept else "Keep ★"
+            btn_color = "#2e7d32" if is_kept else "#1a3a5c"
+            btn = ctk.CTkButton(
+                row_f, text=btn_text, width=80, height=26,
+                fg_color=btn_color, hover_color="#1f6aa5",
+                font=ctk.CTkFont(size=11, weight="bold")
+            )
+            btn.pack(side="right", padx=8)
+
+            # 2. 좌측 컬럼 라벨 및 변수명 입력창
             ctk.CTkLabel(row_f, text=info["name"], width=160, anchor="w",
-                         font=ctk.CTkFont(size=11), text_color="#dddddd").pack(side="left", padx=6)
-            # 샘플값
-            ctk.CTkLabel(row_f, text=info["sample"][:18], width=140, anchor="w",
-                         font=ctk.CTkFont(family="Consolas", size=11), text_color="#888").pack(side="left")
-            # 타입 배지
-            type_colors = {"str": "#37474f", "int": "#1a3a5c", "float": "#1a3a5c",
-                           "date": "#3e2723", "bool": "#1a237e"}
-            ctk.CTkLabel(row_f, text=info["inferred_type"], width=60, anchor="w",
-                         font=ctk.CTkFont(size=11),
-                         text_color=type_colors.get(info["inferred_type"], "#555")).pack(side="left")
-            # 변수명 입력
-            ent = ctk.CTkEntry(row_f, width=140, height=24, font=ctk.CTkFont(family="Consolas", size=11))
+                         font=ctk.CTkFont(size=11, weight="bold"), text_color="#dddddd").pack(side="left", padx=6)
+            ctk.CTkLabel(row_f, text=str(info["sample"])[:18], width=130, anchor="w",
+                         font=ctk.CTkFont(family="Consolas", size=11), text_color="#888").pack(side="left", padx=4)
+            ctk.CTkLabel(row_f, text=info["inferred_type"], width=50, anchor="w",
+                         font=ctk.CTkFont(size=11), text_color="#29b6f6").pack(side="left", padx=4)
+            ent = ctk.CTkEntry(row_f, width=160, height=24, font=ctk.CTkFont(family="Consolas", size=11))
             ent.insert(0, var_name_default)
             ent.pack(side="left", padx=4)
 
-            # Keep+ 버튼
-            btn_text = "✓ 추가됨" if is_kept else "Keep +"
-            btn_color = "#2e7d32" if is_kept else "#1a3a5c"
-
-            def _keep(i=info, e=ent, b_ref=[None]):
-                vname = e.get().strip()
-                if not vname:
-                    return
-                # 중복 체크
-                if any(x["var_name"] == vname for x in self.keep_list):
-                    messagebox.showinfo("중복", f"{vname} 은 이미 Keep 목록에 있습니다.")
-                    return
-                col_name = i["name"]
-                self.keep_list.append({
-                    "keep_type":    "data_column",
-                    "var_name":     vname,
-                    "column_name":  col_name,
-                    "data_type":    i["inferred_type"],
-                    "source_file":  self.data_source_path,
-                    # 하위 호환용 빈 필드
-                    "label":        col_name,
-                    "selector":     "",
-                    "element_type": "data_column",
-                    "path":         "",
-                })
-                self._render_keep_list()
-                self._render_var_chips()
-                self._render_data_chips()
-                if b_ref[0]:
-                    b_ref[0].configure(text="✓ 추가됨", fg_color="#2e7d32")
-
-            btn = ctk.CTkButton(row_f, text=btn_text, width=70, height=24,
-                                fg_color=btn_color, hover_color="#1f6aa5",
-                                font=ctk.CTkFont(size=11), command=_keep)
-            btn.pack(side="left", padx=4)
-            # btn_ref 클로저 연결
-            btn.configure(command=lambda i=info, e=ent, b=btn: (
-                _keep.__wrapped__(i, e, [b]) if hasattr(_keep, '__wrapped__') else None
-            ))
-            # 간단하게 재정의
-            def _make_keep(info_=info, ent_=ent, btn_=btn):
+            def _make_single_keep(info_=info, ent_=ent, btn_=btn):
                 def _do():
                     vname = ent_.get().strip()
                     if not vname:
                         return
-                    if any(x["var_name"] == vname for x in self.keep_list):
+                    if any(x.get("var_name") == vname for x in self.keep_list):
                         messagebox.showinfo("중복", f"{vname} 은 이미 Keep 목록에 있습니다.")
                         return
-                    self.keep_list.append({
+                    item_dict = {
                         "keep_type":    "data_column",
                         "var_name":     vname,
                         "column_name":  info_["name"],
@@ -1529,17 +1547,44 @@ class AIVisionFrame(ctk.CTkFrame):
                         "selector":     "",
                         "element_type": "data_column",
                         "path":         "",
-                    })
+                    }
+                    if getattr(self, "db", None) and getattr(self, "current_project", None):
+                        try:
+                            eid = self.db.save_keep_element(
+                                project_id=self.current_project["id"],
+                                var_name=vname,
+                                keep_type="data_column",
+                                column_name=info_["name"],
+                                data_type=info_["inferred_type"],
+                                source_file=self.data_source_path,
+                                label=info_["name"]
+                            )
+                            item_dict["id"] = eid
+                        except Exception as e:
+                            print(f"DB Keep 에러: {e}")
+                    self.keep_list.append(item_dict)
                     self._render_keep_list()
                     self._render_var_chips()
                     self._render_data_chips()
                     btn_.configure(text="✓ 추가됨", fg_color="#2e7d32")
                 return _do
-            btn.configure(command=_make_keep())
+            btn.configure(command=_make_single_keep())
+            row_widgets.append((info, ent, btn))
 
-        # 닫기
-        ctk.CTkButton(pop, text="닫기", height=32, fg_color="#333", hover_color="#444",
-                      command=pop.destroy).pack(fill="x", padx=8, pady=6)
+        # 하단 액션 바
+        b_bar = ctk.CTkFrame(pop, fg_color="transparent")
+        b_bar.pack(fill="x", padx=8, pady=8)
+
+        ctk.CTkButton(
+            b_bar, text="✓ 전체 컬럼 Keep 추가", height=32, width=180,
+            fg_color="#2e7d32", hover_color="#1b5e20", font=ctk.CTkFont(size=12, weight="bold"),
+            command=_keep_all
+        ).pack(side="left", padx=4)
+
+        ctk.CTkButton(
+            b_bar, text="닫기", height=32, width=100, fg_color="#333", hover_color="#444",
+            command=pop.destroy
+        ).pack(side="right", padx=4)
 
     def _render_data_chips(self):
         """data_column Keep 항목의 칩 버튼 갱신"""
