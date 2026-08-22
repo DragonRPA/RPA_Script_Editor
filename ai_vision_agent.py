@@ -3,6 +3,7 @@ Universal RPA - Vision AI Code Generator & DOM Inspector
 Google Gemini + Local Ollama
 - 최상위 메인 탭 내장
 - 윈도우 핸들(HWND) 직통 검사 (새로고침/깜빡임 0%, 세션 100% 보존)
+- 브라우저 선택 (Chrome / Edge / 기본)
 - 모든 폰트 크기 12pt 이상 보장
 - 건조한 명사/동사 UI 표준
 """
@@ -65,25 +66,36 @@ class WindowEnumerator:
 class GeminiVisionAgent:
     """Google Gemini 비전 API 통신 매니저"""
 
-    SYSTEM_INSTRUCTION = """당신은 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
+    @classmethod
+    def get_system_instruction(cls, browser_choice: str = "Chrome") -> str:
+        b_low = (browser_choice or "").lower()
+        if "edge" in b_low:
+            launch_code = 'browser = playwright.chromium.launch(channel="msedge", headless=False, args=["--start-maximized"])'
+        elif "chrome" in b_low:
+            launch_code = 'browser = playwright.chromium.launch(channel="chrome", headless=False, args=["--start-maximized"])'
+        else:
+            launch_code = 'browser = playwright.chromium.launch(headless=False, args=["--start-maximized"])'
+
+        return f"""당신은 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
 제공된 [화면 스크린샷], [대상 웹 URL/창], [UI 객체 목록], [자연어 요구사항]을 분석하여 실행 가능한 파이썬 Playwright 코드를 작성하십시오.
 
 [작성 규칙]
 1. 셀렉터 매핑: [UI 객체 목록]에 존재하는 실제 id, name, placeholder, class 속성을 스크린샷과 대조하여 작성하십시오.
 2. 브라우저 기동:
    ```python
-   browser = playwright.chromium.launch(headless=False, args=["--start-maximized"])
+   {launch_code}
    context = browser.new_context(no_viewport=True)
    page = context.new_page()
    ```
-3. 대상 URL이 있으면 `page.goto("{target_url}")` 및 `page.wait_for_load_state("domcontentloaded")`를 포함하십시오.
+3. 대상 URL이 있으면 `page.goto("{{target_url}}")` 및 `page.wait_for_load_state("domcontentloaded")`를 포함하십시오.
 4. 다중 Fallback 셀렉터를 적용하고, 조작 전 `locator.wait_for(state="visible", timeout=5000)`를 적용하십시오.
 5. 실행 가능한 파이썬 코드 블록(```python ... ```)을 최우선으로 출력하십시오.
 """
 
     @classmethod
     def call_gemini_vision(cls, api_key: str, image_path: str, user_prompt: str,
-                           target_url: str = "", model: str = "gemini-2.5-flash", page_html: str = "") -> Tuple[str, str]:
+                           target_url: str = "", model: str = "gemini-2.5-flash", page_html: str = "",
+                           browser_choice: str = "Chrome") -> Tuple[str, str]:
         if not api_key:
             raise ValueError("Google Gemini API Key가 설정되지 않았습니다.")
 
@@ -102,6 +114,8 @@ class GeminiVisionAgent:
         prompt_text = ""
         if target_url:
             prompt_text += f"[대상 URL / 창]\n{target_url}\n\n"
+        if browser_choice:
+            prompt_text += f"[지정 브라우저]\n{browser_choice}\n\n"
         if page_html:
             prompt_text += f"[UI 객체 목록]\n{page_html[:4500]}\n\n"
         prompt_text += f"[요구사항]\n{user_prompt}\n\n"
@@ -123,7 +137,7 @@ class GeminiVisionAgent:
         headers = {"Content-Type": "application/json"}
         payload = {
             "system_instruction": {
-                "parts": [{"text": cls.SYSTEM_INSTRUCTION}]
+                "parts": [{"text": cls.get_system_instruction(browser_choice)}]
             },
             "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {
@@ -162,13 +176,23 @@ class GeminiVisionAgent:
 class OllamaVisionAgent:
     """Ollama 비전 API 통신 매니저"""
 
-    SYSTEM_INSTRUCTION = """당신은 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
+    @classmethod
+    def get_system_instruction(cls, browser_choice: str = "Chrome") -> str:
+        b_low = (browser_choice or "").lower()
+        if "edge" in b_low:
+            launch_code = 'browser = playwright.chromium.launch(channel="msedge", headless=False, args=["--start-maximized"])'
+        elif "chrome" in b_low:
+            launch_code = 'browser = playwright.chromium.launch(channel="chrome", headless=False, args=["--start-maximized"])'
+        else:
+            launch_code = 'browser = playwright.chromium.launch(headless=False, args=["--start-maximized"])'
+
+        return f"""당신은 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
 제공된 [화면 스크린샷], [대상 URL/창], [UI 객체 목록], [자연어 요구사항]을 분석하여 Playwright 자동화 코드를 작성하십시오.
 
 [작성 규칙]
 1. [UI 객체 목록]의 id, name, placeholder, class 속성을 스크린샷과 대조하여 셀렉터를 작성하십시오.
-2. Playwright 브라우저 기동 시 `browser = playwright.chromium.launch(headless=False, args=["--start-maximized"])`, `context = browser.new_context(no_viewport=True)`를 적용하십시오.
-3. 대상 URL이 있으면 `page.goto("{target_url}")` 코드를 최상단에 작성하십시오.
+2. Playwright 브라우저 기동 시 `{launch_code}`, `context = browser.new_context(no_viewport=True)`를 적용하십시오.
+3. 대상 URL이 있으면 `page.goto("{{target_url}}")` 코드를 최상단에 작성하십시오.
 4. 실행 가능한 코드를 ```python ... ``` 블록으로 감싸서 출력하십시오."""
 
     @classmethod
@@ -190,16 +214,19 @@ class OllamaVisionAgent:
 
     @classmethod
     def call_ollama_vision(cls, ollama_url: str, model: str, image_path: str,
-                           user_prompt: str, target_url: str = "", page_html: str = "") -> Tuple[str, str]:
+                           user_prompt: str, target_url: str = "", page_html: str = "",
+                           browser_choice: str = "Chrome") -> Tuple[str, str]:
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"이미지 파일을 찾을 수 없습니다: {image_path}")
 
         with open(image_path, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-        prompt_body = f"{cls.SYSTEM_INSTRUCTION}\n\n"
+        prompt_body = f"{cls.get_system_instruction(browser_choice)}\n\n"
         if target_url:
             prompt_body += f"[대상 URL / 창]\n{target_url}\n\n"
+        if browser_choice:
+            prompt_body += f"[지정 브라우저]\n{browser_choice}\n\n"
         if page_html:
             prompt_body += f"[UI 객체 목록]\n{page_html[:4500]}\n\n"
         prompt_body += f"[요구사항]\n{user_prompt}\n\n"
@@ -239,6 +266,7 @@ class AIVisionFrame(ctk.CTkFrame):
     """
     AI 비전 코드 생성 및 DOM 분석기 프레임
     - 건조한 명사/동사 UI 표준
+    - 브라우저 선택 (Chrome / Edge / 기본)
     - 최소 폰트 크기 12pt 이상 보장
     """
 
@@ -369,7 +397,7 @@ class AIVisionFrame(ctk.CTkFrame):
         )
         self.lbl_img_preview.pack(expand=True, pady=10)
 
-        # [섹션 2] 대상 창 / URL / DOM 카탈로그
+        # [섹션 2] 대상 창 / URL / 브라우저 / DOM 카탈로그
         s2_head = ctk.CTkFrame(left_f, fg_color="transparent")
         s2_head.pack(fill="x", padx=8, pady=(6, 2))
         ctk.CTkLabel(s2_head, text="대상 창 및 URL", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
@@ -388,7 +416,7 @@ class AIVisionFrame(ctk.CTkFrame):
         )
         btn_refresh_wins.pack(side="right")
 
-        # URL 입력 및 수집 버튼
+        # URL 입력 및 브라우저 선택 & 수집 버튼
         url_bar = ctk.CTkFrame(left_f, fg_color="transparent")
         url_bar.pack(fill="x", padx=8, pady=(2, 2))
 
@@ -405,6 +433,19 @@ class AIVisionFrame(ctk.CTkFrame):
             command=self._start_harvest_dom
         )
         self.btn_harvest_dom.pack(side="right")
+
+        # 브라우저 선택 옵션 바
+        browser_bar = ctk.CTkFrame(left_f, fg_color="transparent")
+        browser_bar.pack(fill="x", padx=8, pady=(2, 2))
+
+        ctk.CTkLabel(browser_bar, text="브라우저", font=ctk.CTkFont(size=12, weight="bold"), width=55).pack(side="left", padx=(0, 4))
+        self.seg_browser = ctk.CTkSegmentedButton(
+            browser_bar, values=["Chrome", "Edge", "기본"],
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda _: self._save_all_configs()
+        )
+        self.seg_browser.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        self.seg_browser.set("Chrome")
 
         # 유형별 조작 객체 탭뷰
         self.lbl_dom_status = ctk.CTkLabel(
@@ -557,6 +598,7 @@ class AIVisionFrame(ctk.CTkFrame):
     def _start_harvest_dom(self):
         url = self.ent_target_url.get().strip()
         selected_win_title = self.cbo_windows.get()
+        chosen_browser = self.seg_browser.get()
 
         # 선택된 창의 HWND 탐색
         target_hwnd = 0
@@ -579,6 +621,7 @@ class AIVisionFrame(ctk.CTkFrame):
                     url=url,
                     hwnd=target_hwnd,
                     window_title=selected_win_title,
+                    browser_type=chosen_browser,
                     timeout_sec=15
                 )
                 self.after(0, lambda r=res: self._on_harvest_success(r))
@@ -776,6 +819,7 @@ class AIVisionFrame(ctk.CTkFrame):
             return
 
         target_url = self.ent_target_url.get().strip() or self.cbo_windows.get()
+        chosen_browser = self.seg_browser.get()
         catalog_summary = DOMHarvester.format_catalog_to_text(self.current_catalog)
         engine_choice = self.seg_engine.get()
 
@@ -789,7 +833,7 @@ class AIVisionFrame(ctk.CTkFrame):
             model = self.cbo_gemini_model.get()
             self.btn_generate.configure(text="코드 생성 중...", state="disabled")
             self.txt_result_code.delete("1.0", "end")
-            self.txt_result_code.insert("1.0", f"# Google Gemini ({model}) 분석 중...\n")
+            self.txt_result_code.insert("1.0", f"# Google Gemini ({model}) 분석 중... (브라우저: {chosen_browser})\n")
 
             def _worker_gemini():
                 try:
@@ -799,7 +843,8 @@ class AIVisionFrame(ctk.CTkFrame):
                         user_prompt=prompt,
                         target_url=target_url,
                         model=model,
-                        page_html=catalog_summary
+                        page_html=catalog_summary,
+                        browser_choice=chosen_browser
                     )
                     self.after(0, lambda c=code, f=full_text: self._on_generation_success(c, f, "Gemini"))
                 except Exception as e:
@@ -812,7 +857,7 @@ class AIVisionFrame(ctk.CTkFrame):
             model = self.cbo_ollama_model.get()
             self.btn_generate.configure(text="추론 중...", state="disabled")
             self.txt_result_code.delete("1.0", "end")
-            self.txt_result_code.insert("1.0", f"# Local Ollama ({model}) 추론 중...\n")
+            self.txt_result_code.insert("1.0", f"# Local Ollama ({model}) 추론 중... (브라우저: {chosen_browser})\n")
 
             def _worker_ollama():
                 try:
@@ -822,7 +867,8 @@ class AIVisionFrame(ctk.CTkFrame):
                         image_path=self.current_image_path,
                         user_prompt=prompt,
                         target_url=target_url,
-                        page_html=catalog_summary
+                        page_html=catalog_summary,
+                        browser_choice=chosen_browser
                     )
                     self.after(0, lambda c=code, f=full_text: self._on_generation_success(c, f, f"Ollama ({model})"))
                 except Exception as e:
@@ -900,6 +946,7 @@ class AIVisionFrame(ctk.CTkFrame):
         last_engine = "Google Gemini"
         last_gemini_model = "gemini-2.5-flash"
         last_ollama_model = "qwen3-vl:4b"
+        last_browser = "Chrome"
 
         for cfg_path in [
             self._CONFIG_FILE,
@@ -915,6 +962,7 @@ class AIVisionFrame(ctk.CTkFrame):
                         last_engine = cfg.get("last_ai_engine", last_engine)
                         last_gemini_model = cfg.get("last_gemini_model", last_gemini_model)
                         last_ollama_model = cfg.get("last_ollama_model", last_ollama_model)
+                        last_browser = cfg.get("last_browser_choice", last_browser)
                 except Exception:
                     pass
 
@@ -940,6 +988,9 @@ class AIVisionFrame(ctk.CTkFrame):
         if last_ollama_model:
             self.cbo_ollama_model.set(last_ollama_model)
 
+        if last_browser in ["Chrome", "Edge", "기본"]:
+            self.seg_browser.set(last_browser)
+
     def _save_all_configs(self):
         data_to_save = {
             "gemini_api_key": self.ent_api_key.get().strip(),
@@ -947,7 +998,8 @@ class AIVisionFrame(ctk.CTkFrame):
             "target_url": self.ent_target_url.get().strip(),
             "last_ai_engine": self.seg_engine.get(),
             "last_gemini_model": self.cbo_gemini_model.get(),
-            "last_ollama_model": self.cbo_ollama_model.get()
+            "last_ollama_model": self.cbo_ollama_model.get(),
+            "last_browser_choice": self.seg_browser.get()
         }
 
         for cfg_path in [

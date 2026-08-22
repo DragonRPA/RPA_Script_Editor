@@ -1,6 +1,20 @@
 # RELEASE_NOTES.md
 
-## [v2.4.2.Build.24] - 2026-08-22 13:51
+## [v2.4.3.Build.25] - 2026-08-22 14:07
+
+### 🌐 [브라우저 선택 기능 탑재] Chrome / Edge / 기본 브라우저 지정 UI 및 RPA 실행 채널 연동
+
+1. **브라우저 선택 UI 탑재 (`Chrome` / `Edge` / `기본`)**:
+   - 사용자가 사내 시스템에 로그인해 둔 브라우저(크롬 또는 엣지)를 화면에서 직접 지정 가능
+   - 선택된 브라우저 설정은 실시간으로 영구 저장되어 재실행 시 자동 복원
+2. **Playwright RPA 생성 코드 및 DOM 수집 브라우저 채널 연동**:
+   - `Chrome` 선택 시: `browser = playwright.chromium.launch(channel="chrome", ...)` 생성
+   - `Edge` 선택 시: `browser = playwright.chromium.launch(channel="msedge", ...)` 생성
+   - 브라우저별 사용자 데이터/쿠키 프로필 및 전용 바이너리 경로와 100% 일치하도록 보장
+
+---
+
+
 
 ### 🚀 [근본 결함 해결] 창 새로고침/깜빡임 0% 직통 윈도우 UIA 수집기 탑재 및 전체 폰트 12pt 이상 전면 확대
 

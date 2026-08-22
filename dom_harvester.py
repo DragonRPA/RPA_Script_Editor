@@ -41,12 +41,12 @@ class DOMHarvester:
         cls._active_playwright_page = page
 
     @classmethod
-    def harvest_live_dom(cls, url: str = "", hwnd: int = 0, window_title: str = "", timeout_sec: int = 15) -> Dict[str, Any]:
+    def harvest_live_dom(cls, url: str = "", hwnd: int = 0, window_title: str = "", browser_type: str = "chrome", timeout_sec: int = 15) -> Dict[str, Any]:
         """
         1. 윈도우 핸들(HWND) 또는 창 타이틀이 주어지면, 브라우저를 새로 열거나 새로고침하지 않고
            현재 화면에 열려있는 바로 그 창에서 실시간 UIA 트리로 0.1초 만에 전수 추출 (깜빡임 0%, 세션 100% 보존)
         2. 활성 Playwright 페이지가 있으면 페이지 리로드 없이 즉시 DOM 추출
-        3. URL만 있을 때만 안전하게 렌더링 대기 후 추출
+        3. URL만 있을 때만 지정된 브라우저(Chrome/Edge) 엔진으로 안전하게 렌더링 대기 후 추출
         """
         start_time = time.time()
 
@@ -84,7 +84,6 @@ class DOMHarvester:
             except Exception:
                 pass
 
-
         # ---------------------------------------------------------------------
         # [전략 2] 활성 Playwright 브라우저 페이지 세션 직통 수집 (새로고침 없음)
         # ---------------------------------------------------------------------
@@ -106,14 +105,25 @@ class DOMHarvester:
                 pass
 
         # ---------------------------------------------------------------------
-        # [전략 3] URL 기반 헤드리스 안전 수집 (충분한 렌더링 대기)
+        # [전략 3] URL 기반 지정 브라우저(Chrome/Edge) 안전 수집 (충분한 렌더링 대기)
         # ---------------------------------------------------------------------
         if HAS_PLAYWRIGHT and url:
             if not url.startswith("http://") and not url.startswith("https://"):
                 url = "http://" + url
             try:
                 with sync_playwright() as p:
-                    browser = p.chromium.launch(headless=True)
+                    launch_kwargs = {"headless": True}
+                    b_low = (browser_type or "").lower()
+                    if "chrome" in b_low:
+                        launch_kwargs["channel"] = "chrome"
+                    elif "edge" in b_low or "msedge" in b_low:
+                        launch_kwargs["channel"] = "msedge"
+
+                    try:
+                        browser = p.chromium.launch(**launch_kwargs)
+                    except Exception:
+                        browser = p.chromium.launch(headless=True)
+
                     context = browser.new_context(viewport={"width": 1920, "height": 1080})
                     page = context.new_page()
 
@@ -125,9 +135,10 @@ class DOMHarvester:
                     browser.close()
 
                     elapsed = round(time.time() - start_time, 2)
+                    engine_name = f"{browser_type.upper()} 렌더링 수집" if browser_type else "웹 렌더링 수집"
                     return {
                         "status": "success",
-                        "engine": "웹 렌더링 수집",
+                        "engine": engine_name,
                         "url": extracted.get("url", url),
                         "title": extracted.get("title", ""),
                         "count": extracted.get("totalCount", 0),
@@ -136,6 +147,7 @@ class DOMHarvester:
                     }
             except Exception:
                 pass
+
 
         # ---------------------------------------------------------------------
         # [전략 4] 정적 HTML Fallback
