@@ -1190,39 +1190,41 @@ class AIVisionFrame(ctk.CTkFrame):
             pass
 
     def _rename_keep_item(self, idx: int):
-        """Keep 아이템 변수명 수정 팝업"""
+        """Keep 아이템 변수명 수정 팝업 (DB 즉시 영구 저장)"""
         item = self.keep_list[idx]
         pop = ctk.CTkToplevel(self)
         pop.title("변수명 수정")
-        pop.geometry("360x120")
+        pop.geometry("360x130")
         pop.attributes("-topmost", True)
-        ctk.CTkLabel(pop, text="변수명:", font=ctk.CTkFont(size=12)).pack(pady=(14, 4))
+        ctk.CTkLabel(pop, text="변수명:", font=ctk.CTkFont(size=12, weight="bold")).pack(pady=(14, 4))
         ent = ctk.CTkEntry(pop, font=ctk.CTkFont(family="Consolas", size=13), width=280)
         ent.insert(0, item["var_name"])
         ent.pack()
+        ent.focus_set()
+
         def _apply():
             new_name = ent.get().strip()
             if new_name:
                 item["var_name"] = new_name
                 # DB 업데이트
-                if getattr(self, "db", None) and getattr(self, "current_project", None):
+                if getattr(self, "db", None):
                     try:
-                        self.db.save_keep_element(
-                            project_id=self.current_project["id"],
-                            target_id=item.get("target_id"),
-                            var_name=new_name,
-                            keep_type=item.get("keep_type", "element"),
-                            selector=item.get("selector", ""),
-                            label=item.get("label", ""),
-                            element_type=item.get("element_type", "element"),
-                            path=item.get("path", "")
-                        )
+                        if item.get("keep_type") == "target_url" and item.get("id"):
+                            # target_url인 경우 rpa_targets의 label 수정
+                            self.db.update_target(item["id"], label=new_name)
+                            item["label"] = new_name
+                            self._refresh_target_urls()
+                        elif item.get("id"):
+                            # rpa_keep_elements의 var_name 수정
+                            self.db.update_keep_element_var_name(item["id"], new_name)
                     except Exception as e:
                         print(f"DB Keep 수정 에러: {e}")
                 self._render_keep_list()
-                self._render_var_chips()
+                self._highlight_keep_tokens()
             pop.destroy()
-        ctk.CTkButton(pop, text="적용", width=100, height=30, command=_apply).pack(pady=8)
+
+        ent.bind("<Return>", lambda e: _apply())
+        ctk.CTkButton(pop, text="적용", width=100, height=30, command=_apply).pack(pady=10)
 
     def _clear_keep_list(self):
         """Keep 목록 전체 삭제"""
@@ -2167,9 +2169,9 @@ class AIVisionFrame(ctk.CTkFrame):
             targets = self.db.list_targets(pid)
             for idx, t in enumerate(targets):
                 val = t.get("value") or t.get("label") or ""
-                lbl = t.get("label") or val
-                if lbl and not lbl.startswith("http"):
-                    vname = f"url_{lbl}"
+                lbl = t.get("label") or ""
+                if lbl and not lbl.startswith("http://") and not lbl.startswith("https://"):
+                    vname = lbl
                 else:
                     try:
                         p = urlparse(val).path.strip("/").replace("/", "_").replace("-", "_")

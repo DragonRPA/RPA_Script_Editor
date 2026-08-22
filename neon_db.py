@@ -9,6 +9,50 @@ import json
 from typing import Dict, Any, List, Optional, Tuple
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import base64
+import hashlib
+
+
+def _get_cipher_key(secret_seed: str = "DragonRPA_System_Master_Key_2026") -> bytes:
+    """고정 시드로 32바이트 urlsafe base64 키 생성"""
+    h = hashlib.sha256(secret_seed.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(h)
+
+
+def encrypt_secret(plain_text: str) -> str:
+    """비밀번호/보안 데이터 암호화 (복호화 가능)"""
+    if not plain_text:
+        return ""
+    if plain_text.startswith("ENC:"):
+        return plain_text
+    try:
+        from cryptography.fernet import Fernet
+        f = Fernet(_get_cipher_key())
+        token = f.encrypt(plain_text.encode("utf-8")).decode("utf-8")
+        return f"ENC:{token}"
+    except Exception:
+        b = base64.b64encode(plain_text.encode("utf-8")).decode("utf-8")
+        return f"ENC:B64_{b}"
+
+
+def decrypt_secret(cipher_text: str) -> str:
+    """암호화된 비밀번호/보안 데이터 복호화"""
+    if not cipher_text:
+        return ""
+    if not cipher_text.startswith("ENC:"):
+        return cipher_text
+    raw = cipher_text[4:]
+    if raw.startswith("B64_"):
+        try:
+            return base64.b64decode(raw[4:].encode("utf-8")).decode("utf-8")
+        except Exception:
+            return cipher_text
+    try:
+        from cryptography.fernet import Fernet
+        f = Fernet(_get_cipher_key())
+        return f.decrypt(raw.encode("utf-8")).decode("utf-8")
+    except Exception:
+        return cipher_text
 
 
 class NeonDBManager:
@@ -554,22 +598,58 @@ def robust_click(page, css_selector: str, uia_auto_id: str,
     def add_target(self, project_id: int, label: str, value: str,
                    type_: str = "url", login_id: str = "",
                    login_pw: str = "", notes: str = "") -> int:
-        """대상 시스템 추가 → target_id 반환"""
+        """대상 시스템 추가 → target_id 반환 (비밀번호 암호화 저장)"""
+        enc_pw = encrypt_secret(login_pw) if login_pw else ""
         conn = self.connect()
         try:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO rpa_targets (project_id, type, label, value, login_id, login_pw, notes)
                     VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id;
-                """, (project_id, type_, label, value, login_id, login_pw, notes))
+                """, (project_id, type_, label, value, login_id, enc_pw, notes))
                 tid = cur.fetchone()["id"]
                 conn.commit()
                 return tid
         finally:
             conn.close()
 
+    def update_target(self, target_id: int, label: Optional[str] = None,
+                      value: Optional[str] = None, login_id: Optional[str] = None,
+                      login_pw: Optional[str] = None, notes: Optional[str] = None) -> bool:
+        """대상 시스템 정보 수정 (라벨, URL, 계정정보, 비밀번호 암호화)"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                fields = []
+                params = []
+                if label is not None:
+                    fields.append("label = %s")
+                    params.append(label)
+                if value is not None:
+                    fields.append("value = %s")
+                    params.append(value)
+                if login_id is not None:
+                    fields.append("login_id = %s")
+                    params.append(login_id)
+                if login_pw is not None:
+                    fields.append("login_pw = %s")
+                    params.append(encrypt_secret(login_pw) if login_pw else "")
+                if notes is not None:
+                    fields.append("notes = %s")
+                    params.append(notes)
+                if not fields:
+                    return False
+                params.append(target_id)
+                sql = f"UPDATE rpa_targets SET {', '.join(fields)} WHERE id = %s RETURNING id;"
+                cur.execute(sql, tuple(params))
+                updated = cur.fetchone() is not None
+                conn.commit()
+                return updated
+        finally:
+            conn.close()
+
     def list_targets(self, project_id: int) -> List[Dict[str, Any]]:
-        """프로젝트의 대상 시스템 목록"""
+        """프로젝트의 대상 시스템 목록 (비밀번호 복호화 지원)"""
         conn = self.connect()
         try:
             with conn.cursor() as cur:
@@ -577,7 +657,11 @@ def robust_click(page, css_selector: str, uia_auto_id: str,
                     SELECT id, type, label, value, login_id, login_pw, notes, created_at
                     FROM rpa_targets WHERE project_id = %s ORDER BY id;
                 """, (project_id,))
-                return [dict(r) for r in cur.fetchall()]
+                rows = [dict(r) for r in cur.fetchall()]
+                for r in rows:
+                    if r.get("login_pw"):
+                        r["login_pw_plain"] = decrypt_secret(r["login_pw"])
+                return rows
         finally:
             conn.close()
 
@@ -590,6 +674,21 @@ def robust_click(page, css_selector: str, uia_auto_id: str,
                 deleted = cur.fetchone() is not None
                 conn.commit()
                 return deleted
+        finally:
+            conn.close()
+
+    def update_keep_element_var_name(self, element_id: int, var_name: str) -> bool:
+        """Keep 요소의 변수명(var_name) 변경 및 DB 영구 저장"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE rpa_keep_elements SET var_name = %s WHERE id = %s RETURNING id;",
+                    (var_name, element_id)
+                )
+                updated = cur.fetchone() is not None
+                conn.commit()
+                return updated
         finally:
             conn.close()
 
