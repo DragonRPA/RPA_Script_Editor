@@ -2500,27 +2500,27 @@ class AIVisionFrame(ctk.CTkFrame):
     # =========================================================================
     def _do_insert_editor(self):
         code = self.txt_result_code.get("1.0", "end").strip()
-        if not code or code.startswith("#") or code.startswith("[오류"):
-            messagebox.showwarning("안내", "유효한 코드가 없습니다.")
+        if not code or code.startswith("[오류]") or "분석 중..." in code or "추론 중..." in code:
+            messagebox.showwarning("안내", "전송할 유효한 생성 코드가 없습니다.")
             return
 
         if self.on_insert_code:
             self.on_insert_code(code)
             if self.on_switch_tab:
                 self.on_switch_tab("script")
-            messagebox.showinfo("전송 완료", "스크립트 에디터로 전송되었습니다.")
+            messagebox.showinfo("전송 완료", "파이썬 스크립트 에디터로 전송되었습니다.")
 
     def _do_add_bot(self):
         code = self.txt_result_code.get("1.0", "end").strip()
-        if not code or code.startswith("#") or code.startswith("[오류"):
-            messagebox.showwarning("안내", "유효한 코드가 없습니다.")
+        if not code or code.startswith("[오류]") or "분석 중..." in code or "추론 중..." in code:
+            messagebox.showwarning("안내", "등록할 유효한 생성 코드가 없습니다.")
             return
 
         engine_str = "Gemini" if "Gemini" in self.seg_engine.get() else self.cbo_ollama_model.get()
-        prompt_first_line = self.txt_prompt.get("1.0", "end").strip().splitlines()[0][:20]
+        title_cand = self.ent_task_title.get().strip() or self.txt_prompt.get("1.0", "end").strip().splitlines()[0][:20]
         mod_data = {
             "name": f"ai_mod_{int(time.time())}",
-            "title": f"{prompt_first_line}",
+            "title": f"{title_cand}",
             "category": "웹조작",
             "description": f"AI 생성 모듈 ({engine_str})",
             "code": code
@@ -2530,7 +2530,7 @@ class AIVisionFrame(ctk.CTkFrame):
             self.on_add_to_bot(mod_data)
             if self.on_switch_tab:
                 self.on_switch_tab("bot")
-            messagebox.showinfo("등록 완료", "봇 에디터에 등록되었습니다.")
+            messagebox.showinfo("등록 완료", "봇 에디터에 모듈로 등록되었습니다.")
 
     def _copy_result(self):
         code = self.txt_result_code.get("1.0", "end").strip()
