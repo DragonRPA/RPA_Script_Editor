@@ -15,6 +15,7 @@ import base64
 import threading
 import time
 import ctypes
+import re
 from typing import Dict, Any, Optional, Tuple, Callable, List
 
 import requests
@@ -511,35 +512,20 @@ class AIVisionFrame(ctk.CTkFrame):
             font=ctk.CTkFont(size=11), text_color="#555555"
         ).pack(pady=10)
 
-        # 자동화 요구사항 (프롬프트 빌더)
+        # 자동화 요구사항 (프롬프트 에디터)
         s3_head = ctk.CTkFrame(col1_f, fg_color="transparent")
         s3_head.pack(fill="x", padx=8, pady=(4, 2))
         ctk.CTkLabel(s3_head, text="자동화 요구사항", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+        ctk.CTkLabel(s3_head, text="Keep 더블클릭 시 변수 삽입", font=ctk.CTkFont(size=11), text_color="#ffd54f").pack(side="right")
 
-        # Tabview (expand=True)
-        self.tab_builder = ctk.CTkTabview(col1_f)
-        self.tab_builder.pack(fill="both", expand=True, padx=8, pady=(0, 4))
-
-        tab_free = self.tab_builder.add("자유 입력")
-        tab_step = self.tab_builder.add("단계별 조립")
-
-        # 1. 자유 입력 탭
-        self.txt_prompt = ctk.CTkTextbox(tab_free, font=ctk.CTkFont(size=12))
-        self.txt_prompt.pack(fill="both", expand=True, padx=2, pady=2)
+        # 프롬프트 입력창 (직접 배치하여 수직 공간 최대화)
+        self.txt_prompt = ctk.CTkTextbox(col1_f, font=ctk.CTkFont(size=12))
+        self.txt_prompt.pack(fill="both", expand=True, padx=8, pady=(0, 4))
         self.txt_prompt.insert(
             "1.0",
             "아이디 입력창에 'admin', 비밀번호에 '1234'를 입력하고 로그인 버튼을 클릭."
         )
-
-        # 2. 단계별 조립 탭
-        self.step_widgets = []
-        self.sf_steps = ctk.CTkScrollableFrame(tab_step, fg_color="transparent")
-        self.sf_steps.pack(fill="both", expand=True, padx=2, pady=2)
-        
-        btn_add_step = ctk.CTkButton(tab_step, text="+ 단계 추가", height=28,
-                                     font=ctk.CTkFont(size=11, weight="bold"),
-                                     command=self._add_step_ui)
-        btn_add_step.pack(fill="x", padx=2, pady=2)
+        self._init_prompt_highlight()
 
         # 하단 태스크 메타 및 버튼
         task_meta = ctk.CTkFrame(col1_f, fg_color="transparent")
@@ -1056,20 +1042,28 @@ class AIVisionFrame(ctk.CTkFrame):
             return
 
         for idx, item in enumerate(self.keep_list):
-            row = ctk.CTkFrame(self.frm_keep_panel, fg_color="#252525", corner_radius=4)
+            row = ctk.CTkFrame(self.frm_keep_panel, fg_color="#252525", corner_radius=4, cursor="hand2")
             row.pack(fill="x", pady=2, padx=2)
 
-            ctk.CTkLabel(
-                row, text=f"  {{{item['var_name']}}}",
+            vname = item["var_name"]
+            lbl_var = ctk.CTkLabel(
+                row, text=f"  {{{vname}}}",
                 font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
-                text_color="#ffd54f", anchor="w"
-            ).pack(side="left", fill="x", expand=True)
+                text_color="#ffd54f", anchor="w", cursor="hand2"
+            )
+            lbl_var.pack(side="left", fill="x", expand=True)
+
+            # 더블클릭 시 프롬프트 에디터에 {변수명} 삽입 및 노란색 하이라이트
+            row.bind("<Double-Button-1>", lambda e, v=vname: self._on_keep_item_dblclick(v))
+            lbl_var.bind("<Double-Button-1>", lambda e, v=vname: self._on_keep_item_dblclick(v))
 
             if item.get("path"):
-                ctk.CTkLabel(
+                lbl_path = ctk.CTkLabel(
                     row, text=item["path"][:30],
-                    font=ctk.CTkFont(size=11), text_color="#888888"
-                ).pack(side="left", padx=(0, 6))
+                    font=ctk.CTkFont(size=11), text_color="#888888", cursor="hand2"
+                )
+                lbl_path.pack(side="left", padx=(0, 6))
+                lbl_path.bind("<Double-Button-1>", lambda e, v=vname: self._on_keep_item_dblclick(v))
 
             def _rename(i=idx):
                 self._rename_keep_item(i)
@@ -1091,6 +1085,44 @@ class AIVisionFrame(ctk.CTkFrame):
                 row, text="✕", width=28, height=22, font=ctk.CTkFont(size=11),
                 fg_color="#5a2d2d", hover_color="#7a1a1a", command=_del
             ).pack(side="right", padx=2)
+
+    def _on_keep_item_dblclick(self, var_name: str):
+        """Keep 아이템 더블클릭 시 프롬프트 에디터에 {var_name} 삽입 후 노란색 하이라이트"""
+        token = f"{{{var_name}}}"
+        try:
+            self.txt_prompt.insert("insert", f" {token} ")
+            self.txt_prompt.focus_set()
+            self._highlight_keep_tokens()
+        except Exception as e:
+            print(f"Keep 토큰 삽입 오류: {e}")
+
+    def _init_prompt_highlight(self):
+        """프롬프트 에디터 내 {변수명} 토큰 하이라이트 태그 및 이벤트 바인딩"""
+        try:
+            tb = self.txt_prompt._textbox
+            tb.tag_config(
+                "keep_token",
+                foreground="#ffd54f",
+                font=("Consolas", 12, "bold")
+            )
+            tb.bind("<KeyRelease>", self._highlight_keep_tokens)
+            tb.bind("<<Paste>>", lambda e: self.after(50, self._highlight_keep_tokens))
+            self._highlight_keep_tokens()
+        except Exception as e:
+            print(f"하이라이트 설정 실패: {e}")
+
+    def _highlight_keep_tokens(self, event=None):
+        """프롬프트 에디터 내 {변수명} 토큰을 노란색 굵은 글씨로 실시간 하이라이트"""
+        try:
+            tb = self.txt_prompt._textbox
+            tb.tag_remove("keep_token", "1.0", "end")
+            content = tb.get("1.0", "end")
+            for match in re.finditer(r"\{[^{}]+\}", content):
+                start_idx = f"1.0 + {match.start()} chars"
+                end_idx = f"1.0 + {match.end()} chars"
+                tb.tag_add("keep_token", start_idx, end_idx)
+        except Exception:
+            pass
 
     def _rename_keep_item(self, idx: int):
         """Keep 아이템 변수명 수정 팝업"""
@@ -1138,112 +1170,6 @@ class AIVisionFrame(ctk.CTkFrame):
         self.keep_list.clear()
         self._render_keep_list()
         self._render_var_chips()
-
-    def _add_step_ui(self):
-        idx = len(self.step_widgets) + 1
-        step_f = ctk.CTkFrame(self.sf_steps, fg_color="#1a1a1a", corner_radius=6)
-        step_f.pack(fill="x", padx=2, pady=4)
-
-        # 헤더
-        hdr = ctk.CTkFrame(step_f, fg_color="#222222", corner_radius=0)
-        hdr.pack(fill="x")
-        lbl_idx = ctk.CTkLabel(hdr, text=f"Step {idx}", font=ctk.CTkFont(weight="bold", size=11), text_color="#64b5f6")
-        lbl_idx.pack(side="left", padx=8, pady=4)
-        
-        def _del(sf=step_f):
-            sf.destroy()
-            self.step_widgets = [w for w in self.step_widgets if w["frame"] != sf]
-            self._renumber_steps()
-            
-        ctk.CTkButton(hdr, text="✕", width=24, height=24, fg_color="transparent", hover_color="#444", command=_del).pack(side="right", padx=4)
-
-        keep_names = [k["var_name"] for k in getattr(self, "keep_list", []) if k.get("keep_type", "element") == "element"]
-        if not keep_names:
-            keep_names = ["(Keep 요소 없음)"]
-
-        # 행 1: 액션
-        r1 = ctk.CTkFrame(step_f, fg_color="transparent")
-        r1.pack(fill="x", padx=6, pady=4)
-
-        f_act = ctk.CTkFrame(r1, fg_color="transparent")
-        f_act.pack(side="left", padx=4)
-        ctk.CTkLabel(f_act, text="액션", font=ctk.CTkFont(size=11)).pack(anchor="w")
-        cb_act = ctk.CTkComboBox(f_act, values=["클릭", "입력", "수집", "키입력", "대기"], width=90, font=ctk.CTkFont(size=11))
-        cb_act.set("클릭")
-        cb_act.pack(anchor="w")
-
-        f_tgt = ctk.CTkFrame(r1, fg_color="transparent")
-        f_tgt.pack(side="left", padx=4)
-        ctk.CTkLabel(f_tgt, text="대상 요소", font=ctk.CTkFont(size=11)).pack(anchor="w")
-        cb_tgt = ctk.CTkComboBox(f_tgt, values=keep_names, width=140, font=ctk.CTkFont(size=11))
-        cb_tgt.pack(anchor="w")
-
-        f_val = ctk.CTkFrame(r1, fg_color="transparent")
-        f_val.pack(side="left", padx=4, fill="x", expand=True)
-        ctk.CTkLabel(f_val, text="입력 값 (필요시)", font=ctk.CTkFont(size=11)).pack(anchor="w")
-        ent_val = ctk.CTkEntry(f_val, font=ctk.CTkFont(size=11))
-        ent_val.pack(fill="x")
-
-        # 행 2: 완료조건
-        r2 = ctk.CTkFrame(step_f, fg_color="transparent")
-        r2.pack(fill="x", padx=6, pady=(0, 6))
-
-        f_ctype = ctk.CTkFrame(r2, fg_color="transparent")
-        f_ctype.pack(side="left", padx=4)
-        ctk.CTkLabel(f_ctype, text="완료조건", font=ctk.CTkFont(size=11)).pack(anchor="w")
-        cb_ctype = ctk.CTkComboBox(f_ctype, values=["없음", "요소 출현", "요소 사라짐", "텍스트 일치", "고정 지연"], width=100, font=ctk.CTkFont(size=11))
-        cb_ctype.set("없음")
-        cb_ctype.pack(anchor="w")
-
-        f_ctgt = ctk.CTkFrame(r2, fg_color="transparent")
-        f_ctgt.pack(side="left", padx=4)
-        ctk.CTkLabel(f_ctgt, text="조건 대상", font=ctk.CTkFont(size=11)).pack(anchor="w")
-        cb_ctgt = ctk.CTkComboBox(f_ctgt, values=keep_names, width=140, font=ctk.CTkFont(size=11))
-        cb_ctgt.pack(anchor="w")
-
-        f_cval = ctk.CTkFrame(r2, fg_color="transparent")
-        f_cval.pack(side="left", padx=4, fill="x", expand=True)
-        ctk.CTkLabel(f_cval, text="기대값 / 지연(ms)", font=ctk.CTkFont(size=11)).pack(anchor="w")
-        ent_cval = ctk.CTkEntry(f_cval, font=ctk.CTkFont(size=11))
-        ent_cval.pack(fill="x")
-
-        f_to = ctk.CTkFrame(r2, fg_color="transparent")
-        f_to.pack(side="left", padx=4)
-        ctk.CTkLabel(f_to, text="타임아웃(s)", font=ctk.CTkFont(size=11)).pack(anchor="w")
-        ent_to = ctk.CTkEntry(f_to, width=60, font=ctk.CTkFont(size=11))
-        ent_to.insert(0, "10")
-        ent_to.pack(anchor="w")
-
-        self.step_widgets.append({
-            "frame": step_f,
-            "hdr_label": lbl_idx,
-            "cb_act": cb_act,
-            "cb_tgt": cb_tgt,
-            "ent_val": ent_val,
-            "cb_ctype": cb_ctype,
-            "cb_ctgt": cb_ctgt,
-            "ent_cval": ent_cval,
-            "ent_to": ent_to
-        })
-
-    def _renumber_steps(self):
-        for i, w in enumerate(self.step_widgets):
-            w["hdr_label"].configure(text=f"Step {i+1}")
-
-    def _update_step_dropdowns(self):
-        if not hasattr(self, "step_widgets"): return
-        keep_names = [k["var_name"] for k in getattr(self, "keep_list", []) if k.get("keep_type", "element") == "element"]
-        if not keep_names:
-            keep_names = ["(Keep 요소 없음)"]
-        for w in self.step_widgets:
-            curr_tgt = w["cb_tgt"].get()
-            curr_ctgt = w["cb_ctgt"].get()
-            w["cb_tgt"].configure(values=keep_names)
-            w["cb_ctgt"].configure(values=keep_names)
-            if curr_tgt not in keep_names and keep_names:
-                w["cb_tgt"].set(keep_names[0])
-            if curr_ctgt not in keep_names and keep_names:
-                w["cb_ctgt"].set(keep_names[0])
 
     # ── 요소 타입 → 가능한 액션 매핑 ─────────────────────────────────────────
     _ELEM_ACTIONS = {
@@ -1411,6 +1337,7 @@ class AIVisionFrame(ctk.CTkFrame):
             target.insert(idx, phrase)
 
         target.focus()
+        self._highlight_keep_tokens()
 
     def _insert_var_token(self, var_name: str):
         """활성화된 텍스트박스나 입력창의 커서 위치에 {변수명} 삽입"""
@@ -1701,44 +1628,10 @@ class AIVisionFrame(ctk.CTkFrame):
             lines.append(f"  → 코드에서 row[\"{data_items[0]['column_name']}\"] 형태로 값 참조")
             lines.append("")
 
-        # ③ 요구사항 (자유 입력 vs 단계별 조립 구분)
-        tab_mode = getattr(self, "tab_builder", None)
-        
-        if tab_mode and tab_mode.get() == "단계별 조립":
-            lines.append("[실행 단계 및 완료조건]")
-            for i, w in enumerate(getattr(self, "step_widgets", [])):
-                act = w["cb_act"].get()
-                tgt = w["cb_tgt"].get()
-                val = w["ent_val"].get().strip()
-                ctype = w["cb_ctype"].get()
-                ctgt = w["cb_ctgt"].get()
-                cval = w["ent_cval"].get().strip()
-                to = w["ent_to"].get().strip() or "10"
-                
-                lines.append(f"Step {i+1}:")
-                lines.append(f"  - 액션: {act}")
-                lines.append(f"  - 대상: {{{tgt}}}")
-                if val:
-                    lines.append(f"  - 입력값: {val}")
-                    
-                if ctype != "없음":
-                    c_str = ""
-                    if ctype == "고정 지연":
-                        c_str = f"{cval}ms 강제 대기 (고정 지연)"
-                    else:
-                        c_str = f"{{{ctgt}}} 요소가"
-                        if ctype == "요소 출현":
-                            c_str += " 화면에 나타날 때까지 대기 (visible)"
-                        elif ctype == "요소 사라짐":
-                            c_str += " 화면에서 사라질 때까지 대기 (hidden)"
-                        elif ctype == "텍스트 일치":
-                            c_str += f" 텍스트 '{cval}'와(과) 일치할 때까지 대기"
-                    lines.append(f"  - 완료조건: {c_str} (timeout: {to}s)")
-                lines.append("")
-        else:
-            lines.append("[요구사항]")
-            lines.append(user_prompt)
-            lines.append("")
+        # ③ 요구사항
+        lines.append("[요구사항]")
+        lines.append(user_prompt)
+        lines.append("")
 
         # ④ 코드 생성 지침
         if elem_items or data_items:
