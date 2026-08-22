@@ -1,4 +1,4 @@
-"""
+﻿"""
 Universal RPA - Vision AI Code Generator & DOM Inspector
 Google Gemini + Local Ollama
 - 최상위 메인 탭 내장
@@ -402,6 +402,34 @@ class AIVisionFrame(ctk.CTkFrame):
         s2_head.pack(fill="x", padx=8, pady=(6, 2))
         ctk.CTkLabel(s2_head, text="대상 창 및 URL", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
 
+        # CDP 상태 표시 바
+        cdp_bar = ctk.CTkFrame(left_f, fg_color="#1a1a2e", corner_radius=6)
+        cdp_bar.pack(fill="x", padx=8, pady=(0, 4))
+
+        self.lbl_cdp_status = ctk.CTkLabel(
+            cdp_bar, text="● CDP 미연결", font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#888888", anchor="w"
+        )
+        self.lbl_cdp_status.pack(side="left", padx=(8, 6), pady=4)
+
+        btn_cdp_check = ctk.CTkButton(
+            cdp_bar, text="연결 확인", width=80, height=26, font=ctk.CTkFont(size=12),
+            fg_color="#333355", hover_color="#222244", command=self._check_cdp_status
+        )
+        btn_cdp_check.pack(side="left", padx=(0, 4), pady=4)
+
+        btn_cdp_launch = ctk.CTkButton(
+            cdp_bar, text="CDP 모드 Chrome 시작", width=160, height=26, font=ctk.CTkFont(size=12),
+            fg_color="#1a3a5c", hover_color="#122a44", command=self._launch_chrome_cdp
+        )
+        btn_cdp_launch.pack(side="left", padx=(0, 4), pady=4)
+
+        btn_cdp_launch_edge = ctk.CTkButton(
+            cdp_bar, text="CDP 모드 Edge 시작", width=148, height=26, font=ctk.CTkFont(size=12),
+            fg_color="#1a3a3a", hover_color="#122a2a", command=self._launch_edge_cdp
+        )
+        btn_cdp_launch_edge.pack(side="left", padx=(0, 6), pady=4)
+
         # 윈도우 창 선택 드롭다운
         win_bar = ctk.CTkFrame(left_f, fg_color="transparent")
         win_bar.pack(fill="x", padx=8, pady=(0, 2))
@@ -629,6 +657,93 @@ class AIVisionFrame(ctk.CTkFrame):
                 self.after(0, lambda err=str(e): self._on_harvest_error(err))
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    # =========================================================================
+    # CDP 상태 확인 및 Chrome/Edge CDP 모드 시작
+    # =========================================================================
+    def _check_cdp_status(self):
+        """CDP 연결 가능 여부 확인 및 상태 라벨 갱신"""
+        self.lbl_cdp_status.configure(text="● CDP 확인 중...", text_color="#ffb74d")
+        self.update_idletasks()
+
+        def _worker():
+            info = DOMHarvester.check_cdp_available()
+            self.after(0, lambda i=info: self._on_cdp_check_done(i))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_cdp_check_done(self, info: dict):
+        if info.get("ok"):
+            port = info.get("port", 0)
+            pages = info.get("page_count", 0)
+            self.lbl_cdp_status.configure(
+                text=f"● CDP 연결됨 (포트 {port}, 탭 {pages}개)",
+                text_color="#00e676"
+            )
+        else:
+            self.lbl_cdp_status.configure(
+                text=f"● CDP 미연결 — CDP 모드 Chrome 시작 필요",
+                text_color="#ff5252"
+            )
+
+    def _launch_chrome_cdp(self):
+        """
+        Chrome을 --remote-debugging-port=9222 플래그로 실행.
+        이미 열려있는 Chrome이 있으면 해당 세션에서 새 창을 열려고 시도.
+        CDP 모드 Chrome이 시작되면 DOM 수집 시 전략 0(CDP 직통)이 활성화됨.
+        """
+        import subprocess
+        chrome_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Google\Chrome\Application\chrome.exe"),
+        ]
+        exe = None
+        for p in chrome_paths:
+            if os.path.exists(p):
+                exe = p
+                break
+        if not exe:
+            messagebox.showwarning("Chrome 경로 오류", "Chrome 실행 파일을 찾을 수 없습니다.\n직접 설치 경로를 확인하십시오.")
+            return
+
+        url = self.ent_target_url.get().strip() or "about:blank"
+        subprocess.Popen([
+            exe,
+            "--remote-debugging-port=9222",
+            "--no-first-run",
+            "--no-default-browser-check",
+            url
+        ])
+        self.lbl_cdp_status.configure(text="● Chrome CDP 모드 시작 중...", text_color="#ffb74d")
+        # 2초 후 자동 연결 확인
+        self.after(3000, self._check_cdp_status)
+
+    def _launch_edge_cdp(self):
+        """Edge를 --remote-debugging-port=9223 플래그로 실행."""
+        import subprocess
+        edge_paths = [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        ]
+        exe = None
+        for p in edge_paths:
+            if os.path.exists(p):
+                exe = p
+                break
+        if not exe:
+            messagebox.showwarning("Edge 경로 오류", "Edge 실행 파일을 찾을 수 없습니다.")
+            return
+
+        url = self.ent_target_url.get().strip() or "about:blank"
+        subprocess.Popen([
+            exe,
+            "--remote-debugging-port=9223",
+            "--no-first-run",
+            url
+        ])
+        self.lbl_cdp_status.configure(text="● Edge CDP 모드 시작 중...", text_color="#ffb74d")
+        self.after(3000, self._check_cdp_status)
 
     def _on_harvest_success(self, res: Dict[str, Any]):
         self.btn_harvest_dom.configure(text="DOM 수집", state="normal")
@@ -1089,3 +1204,4 @@ def open_ai_vision_generator(parent, on_insert: Optional[Callable[[str], None]] 
                              on_add_bot: Optional[Callable[[Dict[str, Any]], None]] = None) -> AIVisionModal:
     modal = AIVisionModal(parent, on_insert_code=on_insert, on_add_to_bot=on_add_bot)
     return modal
+

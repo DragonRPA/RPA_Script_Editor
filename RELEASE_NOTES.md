@@ -1,3 +1,32 @@
+﻿## [v2.4.9.Build.30] - 2026-08-22 15:05
+
+### 🔌 [CDP(Chrome DevTools Protocol) 직통 수집 탑재] 세션·쿠키 완전 보존 HTML DOM 추출
+
+#### dom_harvester.py — 전략 0 CDP 추가 (try_cdp_connect / check_cdp_available)
+1. **전략 0: CDP 직통 수집 최우선 적용**:
+   - 이미 열린 Chrome/Edge에 Playwright connect_over_cdp()로 직접 연결
+   - 사용자 세션·쿠키 100% 보존 상태에서 <select>, .input-group, React, AG-Grid 포함 진짜 HTML DOM 추출
+   - Chrome/Edge가 --remote-debugging-port=9222 플래그로 실행된 경우에만 동작
+   - 포트 9222 → 9223 → 9224 → 9229 → 9230 순서로 자동 탐지, 마지막 성공 포트 캐시
+2. **전략 우선순위 (세션 보존 관점 재정렬)**:
+   - 0순위: CDP 직통 (HTML DOM 완벽, 세션 100%)
+   - 1순위: HWND 창 직통 UIA (CDP 실패 시, 네이티브 앱 포함)
+   - 2순위: 활성 Playwright 페이지 세션
+   - 3순위: URL 헤드리스 (창 없을 때만, 공개 페이지 전용)
+3. **	ry_cdp_connect() / check_cdp_available() 공개 메서드 추가**:
+   - UI에서 연결 상태를 실시간 확인하고, DOM 수집 전 사전 검증 가능
+
+#### ai_vision_agent.py — CDP 상태 표시 UI 및 브라우저 시작 버튼 추가
+1. **CDP 상태 표시 바 신설** (cdp_bar):
+   - 연결 안 됨 (빨간) / 확인 중 (주황) / 연결됨 (초록) 3단계 실시간 상태 표시
+   - [연결 확인] 버튼: 백그라운드 스레드로 포트 탐지 후 결과 반영
+2. **[CDP 모드 Chrome 시작] 버튼**:
+   - Chrome 실행 파일을 자동 탐지하여 --remote-debugging-port=9222 플래그로 즉시 실행
+   - 3초 후 자동으로 연결 상태 재확인
+3. **[CDP 모드 Edge 시작] 버튼**:
+   - Edge 실행 파일 자동 탐지, --remote-debugging-port=9223 플래그로 실행
+
+---
 # RELEASE_NOTES.md
 
 ## [v2.4.7.Build.28] - 2026-08-22 14:35
@@ -468,3 +497,4 @@
 5. **JSON 시나리오 재생 엔진**
    - setup_steps(1회 로그인) + loop_steps(건별 반복) 이중 구조
    - 변수 바인딩: {{계약번호}}, {{첨부파일_경로}} 실시간 치환
+
