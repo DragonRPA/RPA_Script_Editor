@@ -22,6 +22,8 @@ from scenario_runner import ScenarioRunner
 from scenario_recorder import ScenarioManager
 from snippets_library import SNIPPET_CATEGORIES
 from neon_db import NeonDBManager
+from ai_vision_agent import AIVisionFrame, open_ai_vision_generator
+
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -57,17 +59,36 @@ class UBUSApp(ctk.CTk):
         self.tabview = ctk.CTkTabview(self, corner_radius=6)
         self.tabview.pack(fill="both", expand=True, padx=12, pady=12)
 
+        self.tab_vision   = self.tabview.add("🤖 AI 비전 & DOM 분석기")
         self.tab_run      = self.tabview.add("🚀 작업 실행 대시보드")
         self.tab_script   = self.tabview.add("🐍 RPA 스크립트 에디터 (스니펫 지원)")
         self.tab_desktop  = self.tabview.add("🖥️ 윈도우 앱 자동화 (Desktop)")
         self.tab_scenario = self.tabview.add("🧩 JSON 시나리오 뷰어")
         self.tab_test     = self.tabview.add("📄 PDF 추출 테스트")
 
+        self._build_vision_tab()
         self._build_run_tab()
         self._build_script_tab()
         self._build_desktop_tab()
         self._build_scenario_tab()
         self._build_test_tab()
+
+    # -------------------------------------------------------------------------
+    # 탭 0: AI 비전 & DOM 분석기
+    # -------------------------------------------------------------------------
+    def _build_vision_tab(self):
+        def _switch_tab(tab_name):
+            if tab_name == "script":
+                self.tabview.set("🐍 RPA 스크립트 에디터 (스니펫 지원)")
+
+        self.vision_frame = AIVisionFrame(
+            self.tab_vision,
+            on_insert_code=lambda code: self._insert_code_to_editor(code),
+            on_add_to_bot=None,
+            on_switch_tab=_switch_tab
+        )
+        self.vision_frame.pack(fill="both", expand=True, padx=2, pady=2)
+
 
     # -------------------------------------------------------------------------
     # 탭 1: 작업 실행 대시보드
@@ -1192,12 +1213,9 @@ if __name__ == "__main__":
         )
 
     def _open_ai_vision_generator(self):
-        """Google Gemini Vision AI 코드 & 셀렉터 생성기 창 열기"""
-        from ai_vision_agent import open_ai_vision_generator
-        open_ai_vision_generator(
-            self,
-            on_insert=lambda code: self._insert_snippet(code)
-        )
+        """AI 비전 코드 생성기 탭으로 즉시 전환 (새 모달 팝업 불필요)"""
+        self.tabview.set("🤖 AI 비전 & DOM 분석기")
+
 
 
 def main():
