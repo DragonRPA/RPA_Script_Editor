@@ -75,7 +75,7 @@ class DOMHarvester:
                         all_pages.extend(ctx.pages)
 
                     if not all_pages:
-                        browser.disconnect()
+                        browser.close()
                         continue
 
                     target_page = None
@@ -89,7 +89,7 @@ class DOMHarvester:
                         target_page = all_pages[-1]
 
                     extracted = target_page.evaluate(cls._get_js_extractor())
-                    browser.disconnect()
+                    browser.close()
 
                     cls._cdp_last_port = port
                     return {
@@ -121,7 +121,7 @@ class DOMHarvester:
                     pages = []
                     for ctx in b.contexts:
                         pages.extend(ctx.pages)
-                    b.disconnect()
+                    b.close()
                     cls._cdp_last_port = port
                     return {"ok": True, "port": port, "message": f"연결됨 (포트 {port})", "page_count": len(pages)}
                 except Exception:
