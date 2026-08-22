@@ -371,13 +371,13 @@ class AIVisionModal(ctk.CTkToplevel):
         )
         self.btn_harvest_dom.pack(side="right")
 
-        # [신규] 실시간 수집된 인터랙티브 HTML DOM 증거 뷰어
+        # [신규] 실시간 수집된 인터랙티브 UI 객체 목록 뷰어
         dom_head = ctk.CTkFrame(left_f, fg_color="transparent")
         dom_head.pack(fill="x", padx=8, pady=(2, 0))
 
         self.lbl_dom_status = ctk.CTkLabel(
-            dom_head, text="📄 [증거 DOM] 수집 대기 중 (실시간 DOM 수집 클릭 시 채워집니다)",
-            font=ctk.CTkFont(size=10), text_color="#aaaaaa"
+            dom_head, text="📋 [전체 조작 가능 객체 목록] (실시간 DOM 수집 클릭 시 입력창/버튼/테이블 전수 나열)",
+            font=ctk.CTkFont(size=11, weight="bold"), text_color="#aaaaaa"
         )
         self.lbl_dom_status.pack(side="left")
 
@@ -388,7 +388,7 @@ class AIVisionModal(ctk.CTkToplevel):
         btn_clear_dom.pack(side="right")
 
         self.txt_dom_snippet = ctk.CTkTextbox(
-            left_f, height=85, font=ctk.CTkFont(family="Consolas", size=10), fg_color="#181818"
+            left_f, height=105, font=ctk.CTkFont(family="Consolas", size=10), fg_color="#181818"
         )
         self.txt_dom_snippet.pack(fill="x", padx=8, pady=(1, 4))
 
@@ -401,8 +401,7 @@ class AIVisionModal(ctk.CTkToplevel):
         self.txt_prompt.pack(fill="both", expand=True, padx=8, pady=(0, 4))
         self.txt_prompt.insert(
             "1.0",
-            "계약번호 검색창에 '2D2607007'을 입력하고 '조회' 버튼을 클릭한 다음,\n"
-            "검색 결과 그리드(테이블)의 첫 번째 행을 더블클릭해서 상세 화면으로 이동해줘."
+            "아이디 입력창에 'admin', 비밀번호에 '1234'를 입력하고 로그인 버튼을 클릭해줘."
         )
 
         # 실행 버튼
@@ -493,7 +492,7 @@ class AIVisionModal(ctk.CTkToplevel):
 
     def _on_harvest_success(self, res: Dict[str, Any]):
         self.btn_harvest_dom.configure(text="🌐 실시간 DOM 수집 🔍", state="normal")
-        snippet = res.get("dom_snippet", "")
+        snippet = res.get("formatted_summary") or res.get("dom_snippet", "")
         count = res.get("count", 0)
         sec = res.get("elapsed_sec", 0)
         engine = res.get("engine", "")
@@ -502,7 +501,7 @@ class AIVisionModal(ctk.CTkToplevel):
         self.txt_dom_snippet.insert("1.0", snippet)
 
         self.lbl_dom_status.configure(
-            text=f"✅ {count}개 핵심 태그 수집 완료 ({sec}초, {engine})",
+            text=f"✅ {count}개 조작 가능 객체 수집 완료 ({sec}초, {engine})",
             text_color="#81c784"
         )
 
