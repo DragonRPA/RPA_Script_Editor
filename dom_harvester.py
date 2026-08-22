@@ -1,9 +1,9 @@
 """
 Universal RPA - Live Interactive DOM & Window UI Harvester
 - 열려있는 윈도우 창(HWND) 직통 검사 (새로고침/깜빡임 0%, 로그인 세션 100% 보존)
-- 8단계 계층적 역추적 조상 탐색 (Upward Ancestor Crawler) 및 다층 텍스트 라벨 정밀 매핑
-- Bootstrap, AntDesign, Vue, React, Table 2D Grid, ARIA, HTML5 속성 전수 지원
-- 웹 브라우저(Chrome/Edge) 및 데스크톱 앱(ERP/더존/SAP) 전천후 지원
+- Bootstrap .input-group-text, Select/Input 시각적 텍스트 라벨 1:1 결합 매핑
+- generic aria-label('선택', '입력' 등) 무시 및 실제 필드명 우선 매핑
+- Windows UIAutomation COM 트리 순회 및 다층 계층 탐색
 """
 
 import os
@@ -33,7 +33,7 @@ except ImportError:
 
 
 class DOMHarvester:
-    """실시간 UI/DOM 객체 수집기 (8단계 계층적 역추적 조상 탐색 및 시각적 라벨 정밀 매핑)"""
+    """실시간 UI/DOM 객체 수집기 (시각적 라벨 정밀 매핑 및 무의미한 기본값 필터링)"""
 
     _active_playwright_page = None
 
@@ -150,7 +150,7 @@ class DOMHarvester:
                 pass
 
         # ---------------------------------------------------------------------
-        # [전략 4] 정적 HTML Fallback (다층 계층 탐색 포함)
+        # [전략 4] 정적 HTML Fallback
         # ---------------------------------------------------------------------
         if HAS_BS4 and url:
             try:
@@ -159,35 +159,42 @@ class DOMHarvester:
                 soup = BeautifulSoup(resp.text, "html.parser")
 
                 catalog = {"inputs": [], "buttons": [], "selects": [], "checks_radios": [], "grids": [], "links": []}
-                for inp in soup.find_all("input")[:50]:
-                    t = (inp.get("type") or "text").lower()
-                    i = inp.get("id") or ""
-                    n = inp.get("name") or ""
-                    ph = inp.get("placeholder") or ""
+
+                # 1. Inputs & Selects
+                for el in soup.find_all(["input", "select", "textarea"])[:80]:
+                    tag = el.name
+                    t = (el.get("type") or "text").lower() if tag == "input" else tag
+                    i = el.get("id") or ""
+                    n = el.get("name") or ""
+                    ph = el.get("placeholder") or ""
 
                     # 다단계 상위 조상 계층 탐색
                     ig_text = ""
-                    curr = inp.parent
+                    curr = el.parent
                     depth = 0
                     while curr and depth < 5 and curr.name not in ['body', 'html']:
-                        lbl_node = curr.find(class_=re.compile(r"input-group-text|form-label|label|title")) or curr.find(['label', 'th', 'dt', 'legend'])
-                        if lbl_node and lbl_node != inp:
+                        lbl_node = curr.find(class_=re.compile(r"input-group-text|form-label|label|title")) or curr.find(['label', 'th', 'dt', 'legend', 'span'])
+                        if lbl_node and lbl_node != el:
                             txt = lbl_node.get_text(strip=True)
-                            if txt and len(txt) <= 30:
+                            if txt and len(txt) <= 30 and txt not in ["선택", "입력", "전체", "조회"]:
                                 ig_text = txt
                                 break
                         curr = curr.parent
                         depth += 1
 
-                    disp = ig_text or ph or i or n or "입력창"
+                    disp = ig_text or ph or i or n or ("드롭다운" if tag == "select" else "입력창")
 
-                    if t in ["checkbox", "radio"]:
+                    if tag == "select":
+                        sel = f"#{i}" if i else (f"select[name='{n}']" if n else (f"div.input-group:has-text('{ig_text}') select" if ig_text else "select"))
+                        catalog["selects"].append({"label": disp, "id": i, "name": n, "selector": sel, "playwrightCode": f'page.locator("{sel}").select_option(label="선택")'})
+                    elif t in ["checkbox", "radio"]:
                         sel = f"#{i}" if i else (f"input[name='{n}']" if n else (f"div.input-group:has-text('{ig_text}') input" if ig_text else f"input[type='{t}']"))
                         catalog["checks_radios"].append({"label": disp, "id": i, "name": n, "type": t, "selector": sel, "playwrightCode": f'page.locator("{sel}").check()'})
                     else:
                         sel = f"#{i}" if i else (f"input[name='{n}']" if n else (f"div.input-group:has-text('{ig_text}') input" if ig_text else (f"input[placeholder*='{ph}']" if ph else "input[type='text']")))
                         catalog["inputs"].append({"label": disp, "id": i, "name": n, "placeholder": ph, "type": t, "selector": sel, "playwrightCode": f'page.locator("{sel}").fill("값")'})
 
+                # 2. Buttons
                 for btn in soup.find_all(["button", "a"])[:40]:
                     bt = btn.get_text(strip=True)[:30]
                     if btn.name == "button" and bt:
@@ -229,9 +236,10 @@ class DOMHarvester:
                 val_pattern = ctrl.GetPattern(uia.PatternId.ValuePattern)
                 cur_val = val_pattern.Value if val_pattern else ""
 
-                # 인접한 TextControl의 문자열(예: '계약번호', '고객명')을 캐시
+                # 인접한 TextControl의 문자열(예: '계약유형', '계약번호', '고객명')을 캐시
                 if ctype == "TextControl" and name and len(name) <= 25 and not name.startswith("http"):
-                    last_seen_text = name
+                    if name not in ["선택", "입력", "전체", "조회"]:
+                        last_seen_text = name
 
                 key = f"{ctype}_{name}_{auto_id}_{cls_name}"
                 if key in seen_keys:
@@ -240,10 +248,10 @@ class DOMHarvester:
 
                 # 1. 텍스트 입력창
                 if ctype in ["EditControl", "DocumentControl"] or "edit" in cls_name.lower():
-                    disp = name or last_seen_text or auto_id or "입력창"
+                    disp = (name if (name and name not in ["입력", "입력창"]) else "") or last_seen_text or auto_id or "입력창"
                     if auto_id:
                         sel = f"#{auto_id}"
-                    elif name:
+                    elif name and name not in ["입력", "입력창"]:
                         sel = f"input[name='{name}']"
                     elif last_seen_text:
                         sel = f"div.input-group:has-text('{last_seen_text}') input"
@@ -289,10 +297,10 @@ class DOMHarvester:
                     count += 1
                     last_seen_text = ""
 
-                # 4. 드롭다운 / 콤보박스
-                elif ctype in ["ComboBoxControl", "ListControl"]:
-                    disp = name or last_seen_text or auto_id or "드롭다운"
-                    sel = f"select[name='{name}']" if name else (f"#{auto_id}" if auto_id else (f"div:has-text('{last_seen_text}') select" if last_seen_text else "select"))
+                # 4. 드롭다운 / 콤보박스 / Select
+                elif ctype in ["ComboBoxControl", "ListControl"] or "select" in cls_name.lower():
+                    disp = (name if (name and name not in ["선택", "드롭다운"]) else "") or last_seen_text or auto_id or "드롭다운"
+                    sel = f"select[name='{name}']" if name else (f"#{auto_id}" if auto_id else (f"div.input-group:has-text('{last_seen_text}') select" if last_seen_text else "select"))
                     catalog["selects"].append({
                         "label": disp,
                         "id": auto_id,
@@ -336,100 +344,107 @@ class DOMHarvester:
             const elements = document.querySelectorAll('input, button, select, textarea, [role="button"], [role="textbox"], [role="tab"], [role="checkbox"], [role="radio"], a, table, .ag-root, .ag-row, form');
             let count = 0;
 
+            const GENERIC_WORDS = new Set(['선택', '입력', 'select', 'input', 'form-select', 'form-control', '전체', 'default', 'custom-select']);
+
+            function cleanText(t) {
+                if (!t) return '';
+                return t.trim().replace(/\\s+/g, ' ');
+            }
+
             function findVisibleLabel(el, id) {
-                // [Tier 1] aria-label & aria-labelledby
-                if (el.getAttribute('aria-label')) {
-                    const a = el.getAttribute('aria-label').trim().replace(/\\s+/g, ' ');
-                    if (a) return a.slice(0, 30);
+                // 1. 바로 앞의 형제 span.input-group-text 또는 .form-label (최우선!)
+                let prev = el.previousElementSibling;
+                while (prev) {
+                    const t = cleanText(prev.innerText || prev.textContent || '');
+                    if (t && t.length <= 30 && !GENERIC_WORDS.has(t.toLowerCase()) && !t.includes('{') && !t.includes('(')) {
+                        return t;
+                    }
+                    prev = prev.previousElementSibling;
                 }
+
+                // 2. 부모 .input-group, .form-group 내부의 .input-group-text, .form-label, label
+                const inputGroup = el.closest('.input-group, .form-group, .form-floating, .form-item, .ant-form-item, .field, .col, .d-flex');
+                if (inputGroup) {
+                    const igText = inputGroup.querySelector('.input-group-text, .form-label, label, .ant-form-item-label, .v-label, span.title, dt, span.prefix, th, span');
+                    if (igText && igText !== el && !igText.contains(el)) {
+                        const t = cleanText(igText.innerText || igText.textContent || '');
+                        if (t && t.length <= 30 && !GENERIC_WORDS.has(t.toLowerCase())) {
+                            return t;
+                        }
+                    }
+                }
+
+                // 3. 명시적 <label for="id">
+                if (id) {
+                    const forLbl = document.querySelector(`label[for="${id}"]`);
+                    if (forLbl) {
+                        const t = cleanText(forLbl.innerText);
+                        if (t && !GENERIC_WORDS.has(t.toLowerCase())) return t.slice(0, 30);
+                    }
+                }
+
+                // 4. 직계 <label> 감쌈
+                const wrapLbl = el.closest('label');
+                if (wrapLbl) {
+                    const t = cleanText(wrapLbl.innerText);
+                    if (t && !GENERIC_WORDS.has(t.toLowerCase())) return t.slice(0, 30);
+                }
+
+                // 5. aria-labelledby ID 역참조
                 const ariaLabeledBy = el.getAttribute('aria-labelledby');
                 if (ariaLabeledBy) {
                     const refElem = document.getElementById(ariaLabeledBy);
                     if (refElem) {
-                        const t = (refElem.innerText || refElem.textContent || '').trim().replace(/\\s+/g, ' ');
-                        if (t) return t.slice(0, 30);
+                        const t = cleanText(refElem.innerText || refElem.textContent || '');
+                        if (t && !GENERIC_WORDS.has(t.toLowerCase())) return t.slice(0, 30);
                     }
                 }
 
-                // [Tier 2] 명시적 <label for="id">
-                if (id) {
-                    const forLbl = document.querySelector(`label[for="${id}"]`);
-                    if (forLbl) {
-                        const t = forLbl.innerText.trim().replace(/\\s+/g, ' ');
-                        if (t) return t.slice(0, 30);
-                    }
+                // 6. 비(非) generic aria-label
+                const aria = el.getAttribute('aria-label');
+                if (aria) {
+                    const a = cleanText(aria);
+                    if (a && !GENERIC_WORDS.has(a.toLowerCase())) return a.slice(0, 30);
                 }
 
-                // [Tier 3] 감싸고 있는 직계 <label>
-                const wrapLbl = el.closest('label');
-                if (wrapLbl) {
-                    const t = wrapLbl.innerText.trim().replace(/\\s+/g, ' ');
-                    if (t) return t.slice(0, 30);
-                }
-
-                // [Tier 4] 프레임워크 폼 그룹 컨테이너 (.input-group, .form-group, .ant-form-item 등)
-                const inputGroup = el.closest('.input-group, .form-group, .form-floating, .form-item, .ant-form-item, .field, .v-input');
-                if (inputGroup) {
-                    const igText = inputGroup.querySelector('.input-group-text, .form-label, label, .ant-form-item-label, .v-label, span.title, dt, span.prefix');
-                    if (igText && igText !== el && !igText.contains(el)) {
-                        const t = igText.innerText.trim().replace(/\\s+/g, ' ');
-                        if (t) return t.slice(0, 30);
-                    }
-                }
-
-                // [Tier 5] 가로 방향 직전 형제(Previous Sibling) 요소 탐색
-                let prev = el.previousElementSibling;
-                while (prev) {
-                    const t = (prev.innerText || prev.textContent || '').trim().replace(/\\s+/g, ' ');
-                    if (t && t.length <= 30 && !t.includes('{') && !t.includes('(') && !t.includes('function')) return t;
-                    prev = prev.previousElementSibling;
-                }
-
-                // [Tier 6] 테이블 2D 좌표 매핑 (같은 행의 TH 또는 첫 번째 열, 컬럼 헤더)
+                // 7. 테이블 2D 좌표 매핑 (같은 행의 TH 또는 컬럼 헤더)
                 const td = el.closest('td');
                 if (td) {
                     const prevTh = td.parentElement?.querySelector('th, td:first-child');
                     if (prevTh && prevTh !== td) {
-                        const t = prevTh.innerText.trim().replace(/\\s+/g, ' ');
-                        if (t && t.length <= 30) return t;
+                        const t = cleanText(prevTh.innerText);
+                        if (t && t.length <= 30 && !GENERIC_WORDS.has(t.toLowerCase())) return t;
                     }
                     const colIdx = Array.from(td.parentElement.children).indexOf(td);
                     const table = td.closest('table');
                     if (table && colIdx >= 0) {
                         const headerCell = table.querySelector(`thead th:nth-child(${colIdx + 1}), thead td:nth-child(${colIdx + 1})`);
                         if (headerCell) {
-                            const t = headerCell.innerText.trim().replace(/\\s+/g, ' ');
-                            if (t && t.length <= 30) return t;
+                            const t = cleanText(headerCell.innerText);
+                            if (t && t.length <= 30 && !GENERIC_WORDS.has(t.toLowerCase())) return t;
                         }
                     }
                 }
 
-                // [Tier 7] 계층적 역추적 조상 탐색 (Upward Ancestor Hierarchy Crawler - 최대 6단계)
+                // 8. 상위 조상 계층(Upward Ancestor) 순회 (최대 6단계)
                 let current = el.parentElement;
                 let depth = 0;
                 while (current && depth < 6 && current.tagName.toLowerCase() !== 'body' && current.tagName.toLowerCase() !== 'html') {
-                    // 상위 블록 내부의 헤더/라벨 태그 검색
                     const candidate = current.querySelector('.input-group-text, .form-label, label, th, dt, legend, h5, h6, .title, strong, b');
                     if (candidate && candidate !== el && !candidate.contains(el)) {
-                        const t = candidate.innerText.trim().replace(/\\s+/g, ' ');
-                        if (t && t.length <= 30 && !t.includes('{') && !t.includes('(')) return t;
+                        const t = cleanText(candidate.innerText);
+                        if (t && t.length <= 30 && !GENERIC_WORDS.has(t.toLowerCase()) && !t.includes('{') && !t.includes('(')) return t;
                     }
-
-                    // 상위 블록의 직전 형제 블록 검색 (예: <div class="col-label">계약번호</div> <div class="col-input"><input></div>)
-                    let ancestorPrev = current.previousElementSibling;
-                    while (ancestorPrev) {
-                        const t = (ancestorPrev.innerText || ancestorPrev.textContent || '').trim().replace(/\\s+/g, ' ');
-                        if (t && t.length <= 30 && !t.includes('{') && !t.includes('(') && !t.includes('function')) return t;
-                        ancestorPrev = ancestorPrev.previousElementSibling;
-                    }
-
                     current = current.parentElement;
                     depth++;
                 }
 
-                // [Tier 8] HTML5 속성 (placeholder, title, data-*)
+                // 9. HTML5 속성 (placeholder, title, data-*)
                 const ph = el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('data-label') || el.getAttribute('data-title') || el.getAttribute('data-field') || el.getAttribute('data-col-id');
-                if (ph) return ph.trim().replace(/\\s+/g, ' ').slice(0, 30);
+                if (ph) {
+                    const p = cleanText(ph);
+                    if (p && !GENERIC_WORDS.has(p.toLowerCase())) return p.slice(0, 30);
+                }
 
                 return '';
             }
@@ -446,7 +461,7 @@ class DOMHarvester:
                 const type = (el.type || '').toLowerCase();
                 const placeholder = el.placeholder ? el.placeholder.trim() : '';
                 const className = typeof el.className === 'string' ? el.className.trim().split(/\\s+/).slice(0, 3).join(' ') : '';
-                const rawText = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
+                const rawText = cleanText(el.innerText || el.textContent || '');
                 const text = rawText.slice(0, 35);
 
                 const visibleLabel = findVisibleLabel(el, id);
@@ -464,7 +479,7 @@ class DOMHarvester:
                     } else if (name) {
                         sel = `input[name='${name}']`;
                     } else if (visibleLabel) {
-                        sel = `div.input-group:has-text('${visibleLabel}') input, div:has(> .input-group-text:has-text('${visibleLabel}')) input, div:has(> label:has-text('${visibleLabel}')) input`;
+                        sel = `div.input-group:has-text('${visibleLabel}') input, div:has(> .input-group-text:has-text('${visibleLabel}')) input`;
                     } else if (placeholder) {
                         sel = `input[placeholder*='${placeholder}']`;
                     } else {
