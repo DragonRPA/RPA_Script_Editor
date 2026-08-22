@@ -412,11 +412,6 @@ class AIVisionFrame(ctk.CTkFrame):
         )
         self.lbl_cdp_status.pack(side="left", padx=(8, 6), pady=4)
 
-        btn_cdp_check = ctk.CTkButton(
-            cdp_bar, text="연결 확인", width=80, height=26, font=ctk.CTkFont(size=12),
-            fg_color="#333355", hover_color="#222244", command=self._check_cdp_status
-        )
-        btn_cdp_check.pack(side="left", padx=(0, 4), pady=4)
 
         btn_cdp_launch = ctk.CTkButton(
             cdp_bar, text="Chrome CDP 바로가기 생성", width=180, height=26, font=ctk.CTkFont(size=12),
@@ -645,6 +640,8 @@ class AIVisionFrame(ctk.CTkFrame):
 
         def _worker():
             try:
+                info = DOMHarvester.check_cdp_available()
+                self.after(0, lambda i=info: self._on_cdp_check_done(i))
                 res = DOMHarvester.harvest_live_dom(
                     url=url,
                     hwnd=target_hwnd,
