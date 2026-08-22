@@ -425,8 +425,8 @@ class AIVisionFrame(ctk.CTkFrame):
         body.grid(row=2, column=0, sticky="nsew", padx=6, pady=(1, 2))
         
         # 3-Column Grid Configuration
-        body.grid_columnconfigure(0, weight=1, minsize=300) # Col 0: DOM / Data
-        body.grid_columnconfigure(1, weight=2, minsize=400) # Col 1: Keep / Prompt (Wider)
+        body.grid_columnconfigure(0, weight=1, minsize=340) # Col 0: DOM / Data
+        body.grid_columnconfigure(1, weight=2, minsize=420) # Col 1: Keep / Prompt (Wider)
         body.grid_columnconfigure(2, weight=1, minsize=340) # Col 2: Result Code
         body.grid_rowconfigure(0, weight=1)
 
@@ -910,19 +910,17 @@ class AIVisionFrame(ctk.CTkFrame):
         card.pack_propagate(False)
 
         row = ctk.CTkFrame(card, fg_color="transparent")
-        row.pack(fill="both", expand=True, padx=8, pady=0)
+        row.pack(fill="both", expand=True, padx=4, pady=0)
 
-        disp_name = name if len(name) <= 15 else name[:13] + ".."
-        lbl_name = ctk.CTkLabel(row, text=f"{icon} {disp_name}", width=120, font=ctk.CTkFont(size=11, weight="bold"), text_color="#ffffff", anchor="w")
-        lbl_name.pack(side="left", padx=(0, 8))
-
-        disp_path = path if len(path) <= 18 else path[:15] + ".."
-        if disp_path:
-            lbl_path = ctk.CTkLabel(row, text=f"경로: {disp_path}", width=130, font=ctk.CTkFont(size=11), text_color="#b0bec5", anchor="w")
-            lbl_path.pack(side="left", padx=4)
-
-        lbl_sel = ctk.CTkLabel(row, text=sel, font=ctk.CTkFont(family="Consolas", size=11), text_color="#64b5f6", anchor="w")
-        lbl_sel.pack(side="left", fill="x", expand=True, padx=4)
+        # 1. 우측 액션 버튼들을 먼저 pack(side='right')하여 공간 무조건 확보
+        is_kept = any(k.get("selector") == sel for k in getattr(self, "keep_list", []))
+        btn_keep = ctk.CTkButton(
+            row, text="Keep ★", width=62, height=22, font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color="#c48800" if is_kept else "#7b5800",
+            hover_color="#dba000" if is_kept else "#a07000",
+            command=lambda i=itm: self._on_keep_item(i)
+        )
+        btn_keep.pack(side="right", padx=(2, 0))
 
         if raw_html:
             btn_html = ctk.CTkButton(
@@ -930,14 +928,22 @@ class AIVisionFrame(ctk.CTkFrame):
                 fg_color="#444444", hover_color="#333333",
                 command=lambda: self._show_element_html(name, raw_html, sel)
             )
-            btn_html.pack(side="right", padx=(4, 0))
+            btn_html.pack(side="right", padx=2)
 
-        btn_keep = ctk.CTkButton(
-            row, text="Keep ★", width=56, height=22, font=ctk.CTkFont(size=11, weight="bold"),
-            fg_color="#7b5800", hover_color="#a07000",
-            command=lambda i=itm: self._on_keep_item(i)
-        )
-        btn_keep.pack(side="right", padx=0)
+        # 2. 좌측 요소명 고정 폭
+        disp_name = name if len(name) <= 12 else name[:10] + ".."
+        lbl_name = ctk.CTkLabel(row, text=f"{icon} {disp_name}", width=110, font=ctk.CTkFont(size=11, weight="bold"), text_color="#ffffff", anchor="w")
+        lbl_name.pack(side="left", padx=(0, 4))
+
+        # 3. 경로 고정 폭
+        disp_path = path if len(path) <= 14 else path[:12] + ".."
+        if disp_path:
+            lbl_path = ctk.CTkLabel(row, text=f"경로: {disp_path}", width=100, font=ctk.CTkFont(size=11), text_color="#b0bec5", anchor="w")
+            lbl_path.pack(side="left", padx=2)
+
+        # 4. 남은 공간에 셀렉터 표출 (자동 확장/축소)
+        lbl_sel = ctk.CTkLabel(row, text=sel, font=ctk.CTkFont(family="Consolas", size=11), text_color="#64b5f6", anchor="w")
+        lbl_sel.pack(side="left", fill="x", expand=True, padx=4)
 
     def _show_element_html(self, name: str, raw_html: str, sel: str):
         """요소의 실제 HTML 코드 및 세부 속성을 팝업으로 표출"""
