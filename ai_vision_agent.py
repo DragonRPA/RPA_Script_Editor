@@ -2,9 +2,10 @@
 Universal RPA - Evidence-Based Hybrid Vision AI RPA Code & Selector Generator
 Google Gemini (클라우드 초고속) + Local Ollama (100% 무료 / 로컬 오프라인) 듀얼 엔진
 - 1단계: 화면 이미지 (클립보드 붙여넣기 Ctrl+V / 직접 캡처 / 파일 열기)
-- 2단계: 대상 웹 URL 및 실시간 인터랙티브 HTML DOM 수집/검증 뷰어
-- 3단계: 자연어 요구사항 입력
-- 증거 기반(Evidence-Based) Visual Grounding & 100% 무결점 셀렉터 생성
+- 2단계: 대상 웹 URL 및 유형별 조작 객체(입력창, 버튼, 그리드 등) 전수 카탈로그 인스펙터
+- 3단계: 3~4줄 컴팩트 자연어 요구사항 입력
+- 요소 선택 시 실시간 셀렉터 표시 및 복사
+- 마지막 사용 URL 및 AI 엔진 설정 자동 영구 기억
 """
 
 import os
@@ -33,12 +34,12 @@ class GeminiVisionAgent:
     """Google Gemini 멀티모달 비전 API 통신 매니저 (클라우드)"""
 
     SYSTEM_INSTRUCTION = """당신은 세계 최고 권위의 엔터프라이즈 파이썬 RPA 및 웹/데스크톱 자동화 아키텍트입니다.
-사용자가 제공한 [화면 스크린샷 이미지], [대상 웹 URL], [실시간 수집된 HTML DOM 증거], [자연어 요구사항]을 정밀 분석하여, 실무 현장에서 100% 오류 없이 즉시 실행 가능한 완성형 파이썬 Playwright / Windows UIA 자동화 코드를 작성하십시오.
+사용자가 제공한 [화면 스크린샷 이미지], [대상 웹 URL], [실시간 수집된 UI 객체 카탈로그], [자연어 요구사항]을 정밀 분석하여, 실무 현장에서 100% 오류 없이 즉시 실행 가능한 완성형 파이썬 Playwright / Windows UIA 자동화 코드를 작성하십시오.
 
 [필수 엔지니어링 표준 수칙]
 1. 🔍 증거 기반(Evidence-Based) 셀렉터 1:1 매핑:
-   - 함께 제공된 [실시간 수집된 HTML DOM 증거] 속의 실제 id, name, placeholder, class, label 힌트를 스크린샷 이미지와 1:1로 정확히 대조하십시오.
-   - 추측이나 환각(Hallucination)에 의한 가상 속성을 쓰지 말고, DOM 증거에 실제로 존재하는 고유 속성을 기반으로 셀렉터를 작성하십시오.
+   - 함께 제공된 [실시간 수집된 UI 객체 카탈로그] 속의 실제 id, name, placeholder, class, label 힌트를 스크린샷 이미지와 1:1로 정확히 대조하십시오.
+   - 추측이나 환각(Hallucination)에 의한 가상 속성을 쓰지 말고, 카탈로그에 실제로 존재하는 고유 속성을 기반으로 셀렉터를 작성하십시오.
 
 2. 🖥️ 브라우저 기동 및 전체화면 (Playwright):
    - 브라우저 실행 시 반드시 최대화 및 가상 뷰포트 해제 적용:
@@ -51,19 +52,12 @@ class GeminiVisionAgent:
 
 3. 🎯 견고한 다중 Fallback 셀렉터 (Locators):
    - 클래스명이 동적으로 변하거나 난독화되어 있어도 절대 깨지지 않도록 다중 후보군(Placeholder, Label 인접 인풋, Name, Role, ARIA, 텍스트)을 결합한 복합 셀렉터를 사용하십시오.
-   - 예시:
-     - 검색창: `page.locator("input[placeholder*='검색어'], div:has(> label:has-text('라벨명')) input, input[name*='keyword']").first`
-     - 버튼: `page.locator("button:has-text('조회'), button[type='submit']").first`
-     - AG-Grid / 테이블: `page.locator(".ag-row, table tbody tr").first.dblclick()`
    - 모든 요소 조작 전 `locator.wait_for(state="visible", timeout=5000)` 가시성 대기를 기본 적용하십시오.
 
-4. 🪟 Windows 데스크톱 앱 (UIA) 감지 시:
-   - `import uiautomation as uia`를 사용하여 최상위 창 포커스 및 AutomationId / Name 기반 제어 코드를 작성하십시오.
-
-5. 📊 실시간 콘솔 로깅 및 예외 처리:
+4. 📊 실시간 콘솔 로깅 및 예외 처리:
    - 각 작업 단계마다 `print(">>> [단계 진행] ...")` 로그를 남기고, 적절한 `page.wait_for_timeout(...)`을 배치하여 안정성을 확보하십시오.
 
-6. 📦 출력 포맷:
+5. 📦 출력 포맷:
    - 다른 설명 없이 오직 완성된 파이썬 코드 블록(```python ... ```)을 최우선으로 출력하고, 코드 블록 하단에 사용된 핵심 셀렉터 분석 요약을 간결하게 첨부하십시오.
 """
 
@@ -89,9 +83,9 @@ class GeminiVisionAgent:
         if target_url:
             prompt_text += f"### [대상 웹페이지 URL / 라우트]\n{target_url}\n\n"
         if page_html:
-            prompt_text += f"### [실시간 수집된 실제 HTML DOM 증거]\n{page_html[:4000]}\n\n"
+            prompt_text += f"### [실시간 수집된 실제 UI 조작 객체 카탈로그]\n{page_html[:4500]}\n\n"
         prompt_text += f"### [자연어 자동화 요구사항]\n{user_prompt}\n\n"
-        prompt_text += "위 화면 스크린샷과 실시간 HTML DOM 증거, URL, 요구사항을 바탕으로 최적의 셀렉터와 파이썬 Playwright RPA 코드를 작성해 주십시오."
+        prompt_text += "위 화면 스크린샷과 UI 객체 카탈로그, URL, 요구사항을 바탕으로 최적의 셀렉터와 파이썬 Playwright RPA 코드를 작성해 주십시오."
 
         parts = [
             {
@@ -149,14 +143,13 @@ class OllamaVisionAgent:
     """로컬 Ollama 멀티모달 비전 API 통신 매니저 (100% 무료 / 오프라인)"""
 
     SYSTEM_INSTRUCTION = """당신은 세계 최고 수준의 파이썬 RPA 및 웹/데스크톱 자동화 엔지니어링 전문가입니다.
-제공된 [화면 스크린샷 이미지], [대상 URL], [실시간 HTML DOM 증거], [자연어 요구사항]을 분석하여, 가장 견고하고 정확한 Playwright (웹) 또는 Windows UIA 자동화 코드를 작성하십시오.
+제공된 [화면 스크린샷 이미지], [대상 URL], [실시간 UI 조작 객체 카탈로그], [자연어 요구사항]을 분석하여, 가장 견고하고 정확한 Playwright (웹) 또는 Windows UIA 자동화 코드를 작성하십시오.
 
 [작성 규칙]
-1. 제공된 [실시간 HTML DOM 증거]의 id, name, placeholder, class 속성을 스크린샷과 대조하여 100% 정확한 실제 셀렉터를 추출하십시오.
+1. 제공된 [실시간 UI 조작 객체 카탈로그]의 id, name, placeholder, class 속성을 스크린샷과 대조하여 100% 정확한 실제 셀렉터를 추출하십시오.
 2. Playwright 브라우저 기동 시 `browser = playwright.chromium.launch(headless=False, args=["--start-maximized"])`, `context = browser.new_context(no_viewport=True)`를 적용하십시오.
 3. 대상 URL이 있으면 `page.goto("{target_url}")` 코드를 최상단에 작성하십시오.
-4. 셀렉터는 클래스명이 바뀌어도 안전한 `page.locator("input[placeholder*='...'], div:has(> label:has-text('...')) input").first` 형태의 다중 Fallback을 사용하십시오.
-5. 반드시 실행 가능한 완성된 파이썬 코드를 ```python ... ``` 블록으로 감싸서 출력하십시오."""
+4. 반드시 실행 가능한 완성된 파이썬 코드를 ```python ... ``` 블록으로 감싸서 출력하십시오."""
 
     @classmethod
     def list_installed_models(cls, ollama_url: str = "http://localhost:11434") -> List[str]:
@@ -188,9 +181,9 @@ class OllamaVisionAgent:
         if target_url:
             prompt_body += f"[대상 웹페이지 URL]\n{target_url}\n\n"
         if page_html:
-            prompt_body += f"[실시간 수집된 실제 HTML DOM 증거]\n{page_html[:4000]}\n\n"
+            prompt_body += f"[실시간 수집된 실제 UI 조작 객체 카탈로그]\n{page_html[:4500]}\n\n"
         prompt_body += f"[사용자 자연어 요구사항]\n{user_prompt}\n\n"
-        prompt_body += "위 화면 스크린샷과 HTML DOM 증거에서 타겟 요소를 찾아 최적의 Playwright 셀렉터와 파이썬 실행 코드를 작성해 주십시오."
+        prompt_body += "위 화면 스크린샷과 UI 객체 카탈로그에서 타겟 요소를 찾아 최적의 Playwright 셀렉터와 파이썬 실행 코드를 작성해 주십시오."
 
         url = f"{ollama_url.rstrip('/')}/api/generate"
         payload = {
@@ -223,7 +216,7 @@ class OllamaVisionAgent:
 
 
 class AIVisionModal(ctk.CTkToplevel):
-    """Google Gemini + Local Ollama 듀얼 비전 AI 코드 생성기 대화상자"""
+    """Google Gemini + Local Ollama 듀얼 비전 AI 코드 생성기 대화상자 (유형별 DOM 카탈로그 & 영구 기억)"""
 
     _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recorder_config.json")
 
@@ -235,17 +228,17 @@ class AIVisionModal(ctk.CTkToplevel):
         self.on_insert_code = on_insert_code
         self.on_add_to_bot = on_add_to_bot
 
-        self.title("🤖 증거 기반(Evidence-Based) Vision AI 셀렉터 & RPA 코드 생성기 (Gemini + Ollama)")
-        self.geometry("1060x880")
-        self.minsize(940, 720)
+        self.title("🤖 증거 기반(Evidence-Based) 범용 Vision AI 셀렉터 & RPA 코드 생성기")
+        self.geometry("1120x920")
+        self.minsize(980, 740)
         self.attributes("-topmost", True)
 
         self.current_image_path: Optional[str] = None
         self.preview_image_ref: Optional[ImageTk.PhotoImage] = None
+        self.current_catalog: Dict[str, List[Dict[str, Any]]] = {}
 
         self._build_ui()
         self._load_saved_configs()
-        self._on_engine_changed(self.seg_engine.get())
 
         self.bind("<Control-v>", lambda e: self._paste_from_clipboard())
         self.bind("<Control-V>", lambda e: self._paste_from_clipboard())
@@ -262,7 +255,6 @@ class AIVisionModal(ctk.CTkToplevel):
             command=self._on_engine_changed
         )
         self.seg_engine.pack(side="left", padx=(0, 12), pady=6)
-        self.seg_engine.set("☁️ Google Gemini (초고속)")
 
         self.engine_conf_frame = ctk.CTkFrame(top_ctrl, fg_color="transparent")
         self.engine_conf_frame.pack(side="left", fill="x", expand=True, padx=4)
@@ -270,49 +262,57 @@ class AIVisionModal(ctk.CTkToplevel):
         # [A] Gemini 설정 위젯들
         self.f_gemini = ctk.CTkFrame(self.engine_conf_frame, fg_color="transparent")
         ctk.CTkLabel(self.f_gemini, text="Key:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
-        self.ent_api_key = ctk.CTkEntry(self.f_gemini, height=28, width=210, placeholder_text="Gemini API Key", show="*")
+        self.ent_api_key = ctk.CTkEntry(self.f_gemini, height=28, width=200, placeholder_text="Gemini API Key", show="*")
         self.ent_api_key.pack(side="left", padx=(0, 4))
+        self.ent_api_key.bind("<FocusOut>", lambda e: self._save_all_configs())
 
         btn_toggle_key = ctk.CTkButton(self.f_gemini, text="👁", width=28, height=28, fg_color="#444444", command=self._toggle_key_visibility)
         btn_toggle_key.pack(side="left", padx=(0, 4))
 
-        btn_save_key = ctk.CTkButton(self.f_gemini, text="저장", width=50, height=28, fg_color="#2e7d32", command=self._save_api_key)
+        btn_save_key = ctk.CTkButton(self.f_gemini, text="저장", width=50, height=28, fg_color="#2e7d32", command=self._save_all_configs)
         btn_save_key.pack(side="left", padx=(0, 8))
 
         ctk.CTkLabel(self.f_gemini, text="모델:", font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 4))
-        self.cbo_gemini_model = ctk.CTkComboBox(self.f_gemini, values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"], width=145, height=28)
+        self.cbo_gemini_model = ctk.CTkComboBox(
+            self.f_gemini, values=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"], width=145, height=28,
+            command=lambda _: self._save_all_configs()
+        )
         self.cbo_gemini_model.pack(side="left")
         self.cbo_gemini_model.set("gemini-2.5-flash")
 
         # [B] Ollama 설정 위젯들
         self.f_ollama = ctk.CTkFrame(self.engine_conf_frame, fg_color="transparent")
         ctk.CTkLabel(self.f_ollama, text="URL:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 4))
-        self.ent_ollama_url = ctk.CTkEntry(self.f_ollama, height=28, width=170)
+        self.ent_ollama_url = ctk.CTkEntry(self.f_ollama, height=28, width=160)
         self.ent_ollama_url.pack(side="left", padx=(0, 4))
         self.ent_ollama_url.insert(0, "http://localhost:11434")
+        self.ent_ollama_url.bind("<FocusOut>", lambda e: self._save_all_configs())
 
         btn_refresh_ollama = ctk.CTkButton(self.f_ollama, text="🔄 모델 조회", width=80, height=28, fg_color="#1f6aa5", command=self._refresh_ollama_models)
         btn_refresh_ollama.pack(side="left", padx=(0, 8))
 
         ctk.CTkLabel(self.f_ollama, text="비전 모델:", font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 4))
-        self.cbo_ollama_model = ctk.CTkComboBox(self.f_ollama, values=["qwen3-vl:4b", "gemma3:12b", "llava", "qwen2.5:7b"], width=145, height=28)
+        self.cbo_ollama_model = ctk.CTkComboBox(
+            self.f_ollama, values=["qwen3-vl:4b", "gemma3:12b", "llava", "qwen2.5:7b"], width=145, height=28,
+            command=lambda _: self._save_all_configs()
+        )
         self.cbo_ollama_model.pack(side="left")
         self.cbo_ollama_model.set("qwen3-vl:4b")
 
-        # 2. 본문 2분할 (좌: 3대 입력 칸 + 증거 DOM 뷰어 / 우: AI 생성 코드 뷰어)
+        # 2. 본문 2분할 (좌: 3대 입력 칸 + 유형별 DOM 카탈로그 / 우: AI 생성 코드 뷰어)
         body = ctk.CTkFrame(self, corner_radius=6)
         body.pack(fill="both", expand=True, padx=10, pady=4)
-        body.grid_columnconfigure(0, weight=1, minsize=480)
-        body.grid_columnconfigure(1, weight=1, minsize=480)
+        body.grid_columnconfigure(0, weight=1, minsize=520)
+        body.grid_columnconfigure(1, weight=1, minsize=500)
         body.grid_rowconfigure(0, weight=1)
 
         # ---------------------------------------------------------------------
-        # 좌측: 3대 입력 칸 + 실시간 DOM 증거 뷰어
+        # 좌측: [1] 이미지 지정 -> [2] URL & 유형별 DOM 카탈로그 -> [3] 콤팩트 자연어
         # ---------------------------------------------------------------------
         left_f = ctk.CTkFrame(body, corner_radius=6)
         left_f.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
 
-        # [섹션 1] 이미지 지정 칸 (클립보드 / 캡처 / 파일선택)
+        # [섹션 1] 이미지 지정 칸
         s1_head = ctk.CTkFrame(left_f, fg_color="transparent")
         s1_head.pack(fill="x", padx=8, pady=(4, 2))
         ctk.CTkLabel(s1_head, text="📸 [1/3] 타겟 화면 이미지 지정", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
@@ -341,19 +341,18 @@ class AIVisionModal(ctk.CTkToplevel):
         )
         btn_browse_img.pack(side="left", padx=2)
 
-        # 썸네일 미리보기 박스
-        self.frame_preview = ctk.CTkFrame(left_f, height=100, fg_color="#181818", corner_radius=6)
+        self.frame_preview = ctk.CTkFrame(left_f, height=80, fg_color="#181818", corner_radius=6)
         self.frame_preview.pack(fill="x", padx=8, pady=2)
         self.lbl_img_preview = ctk.CTkLabel(
             self.frame_preview, text="[클립보드 복사(Win+Shift+S) 후 Ctrl+V 또는 캡처/파일 선택]",
             font=ctk.CTkFont(size=11), text_color="#777777"
         )
-        self.lbl_img_preview.pack(expand=True, pady=18)
+        self.lbl_img_preview.pack(expand=True, pady=12)
 
         # [섹션 2] 대상 웹 URL 입력 칸 & 실시간 DOM 수집 버튼
         s2_head = ctk.CTkFrame(left_f, fg_color="transparent")
-        s2_head.pack(fill="x", padx=8, pady=(6, 2))
-        ctk.CTkLabel(s2_head, text="🌐 [2/3] 대상 웹 URL & 라이브 DOM 증거", font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6").pack(side="left")
+        s2_head.pack(fill="x", padx=8, pady=(4, 2))
+        ctk.CTkLabel(s2_head, text="🌐 [2/3] 대상 웹 URL & 유형별 조작 객체 카탈로그", font=ctk.CTkFont(size=12, weight="bold"), text_color="#64b5f6").pack(side="left")
 
         url_bar = ctk.CTkFrame(left_f, fg_color="transparent")
         url_bar.pack(fill="x", padx=8, pady=(0, 2))
@@ -362,7 +361,7 @@ class AIVisionModal(ctk.CTkToplevel):
             url_bar, height=28, placeholder_text="예: http://175.119.156.105:3000/contract/list"
         )
         self.ent_target_url.pack(side="left", fill="x", expand=True, padx=(0, 4))
-        self.ent_target_url.insert(0, "http://175.119.156.105:3000/contract/list")
+        self.ent_target_url.bind("<FocusOut>", lambda e: self._save_all_configs())
 
         self.btn_harvest_dom = ctk.CTkButton(
             url_bar, text="🌐 실시간 DOM 수집 🔍", width=145, height=28,
@@ -371,34 +370,61 @@ class AIVisionModal(ctk.CTkToplevel):
         )
         self.btn_harvest_dom.pack(side="right")
 
-        # [신규] 실시간 수집된 인터랙티브 UI 객체 목록 뷰어
-        dom_head = ctk.CTkFrame(left_f, fg_color="transparent")
-        dom_head.pack(fill="x", padx=8, pady=(2, 0))
-
+        # ---------------------------------------------------------------------
+        # [신규] 유형별 조작 가능 객체 탭뷰 (Tabview) 인스펙터
+        # ---------------------------------------------------------------------
         self.lbl_dom_status = ctk.CTkLabel(
-            dom_head, text="📋 [전체 조작 가능 객체 목록] (실시간 DOM 수집 클릭 시 입력창/버튼/테이블 전수 나열)",
-            font=ctk.CTkFont(size=11, weight="bold"), text_color="#aaaaaa"
+            left_f, text="📋 [페이지 내 전체 조작 가능 객체] (URL 입력 후 '실시간 DOM 수집' 클릭)",
+            font=ctk.CTkFont(size=11, weight="bold"), text_color="#aaaaaa", anchor="w"
         )
-        self.lbl_dom_status.pack(side="left")
+        self.lbl_dom_status.pack(fill="x", padx=8, pady=(2, 0))
 
-        btn_clear_dom = ctk.CTkButton(
-            dom_head, text="지우기", width=50, height=18, font=ctk.CTkFont(size=10),
-            fg_color="#333333", command=lambda: self.txt_dom_snippet.delete("1.0", "end")
-        )
-        btn_clear_dom.pack(side="right")
+        self.tabview_dom = ctk.CTkTabview(left_f, height=180)
+        self.tabview_dom.pack(fill="both", expand=True, padx=8, pady=(1, 2))
 
-        self.txt_dom_snippet = ctk.CTkTextbox(
-            left_f, height=105, font=ctk.CTkFont(family="Consolas", size=10), fg_color="#181818"
-        )
-        self.txt_dom_snippet.pack(fill="x", padx=8, pady=(1, 4))
+        self.tab_inputs = self.tabview_dom.add("📝 입력창 (0)")
+        self.tab_buttons = self.tabview_dom.add("🔘 버튼 (0)")
+        self.tab_selects = self.tabview_dom.add("🔽 드롭다운 (0)")
+        self.tab_checks = self.tabview_dom.add("☑️ 체크/라디오 (0)")
+        self.tab_grids = self.tabview_dom.add("📊 그리드 (0)")
+        self.tab_links = self.tabview_dom.add("📑 링크/탭 (0)")
 
-        # [섹션 3] 자연어 요구사항 입력 칸
+        # 각 탭 내부 스크롤 프레임 생성
+        self.scroll_frames = {
+            "inputs": ctk.CTkScrollableFrame(self.tab_inputs, fg_color="transparent"),
+            "buttons": ctk.CTkScrollableFrame(self.tab_buttons, fg_color="transparent"),
+            "selects": ctk.CTkScrollableFrame(self.tab_selects, fg_color="transparent"),
+            "checks_radios": ctk.CTkScrollableFrame(self.tab_checks, fg_color="transparent"),
+            "grids": ctk.CTkScrollableFrame(self.tab_grids, fg_color="transparent"),
+            "links": ctk.CTkScrollableFrame(self.tab_links, fg_color="transparent"),
+        }
+        for sf in self.scroll_frames.values():
+            sf.pack(fill="both", expand=True)
+
+        # ---------------------------------------------------------------------
+        # [신규] 선택된 객체의 실시간 추천 셀렉터 표시 바
+        # ---------------------------------------------------------------------
+        sel_box = ctk.CTkFrame(left_f, corner_radius=6, fg_color="#181818")
+        sel_box.pack(fill="x", padx=8, pady=(2, 4))
+
+        ctk.CTkLabel(sel_box, text="🎯 선택된 셀렉터:", font=ctk.CTkFont(size=11, weight="bold"), text_color="#64b5f6").pack(side="left", padx=(8, 4), pady=4)
+        self.lbl_selected_sel = ctk.CTkEntry(sel_box, height=26, font=ctk.CTkFont(family="Consolas", size=11), fg_color="#262626")
+        self.lbl_selected_sel.pack(side="left", fill="x", expand=True, padx=(0, 4), pady=4)
+        self.lbl_selected_sel.insert(0, "(목록에서 원하는 요소를 클릭하면 셀렉터가 표시됩니다)")
+
+        btn_copy_sel = ctk.CTkButton(sel_box, text="복사", width=45, height=26, font=ctk.CTkFont(size=10), fg_color="#444444", command=self._copy_selected_selector)
+        btn_copy_sel.pack(side="right", padx=(0, 6), pady=4)
+
+        btn_inject_prompt = ctk.CTkButton(sel_box, text="+ 요구사항에 추가", width=105, height=26, font=ctk.CTkFont(size=10), fg_color="#00695c", command=self._inject_selected_into_prompt)
+        btn_inject_prompt.pack(side="right", padx=(0, 4), pady=4)
+
+        # [섹션 3] 자연어 요구사항 입력 칸 (콤팩트 3~4줄 높이)
         s3_head = ctk.CTkFrame(left_f, fg_color="transparent")
-        s3_head.pack(fill="x", padx=8, pady=(4, 2))
-        ctk.CTkLabel(s3_head, text="✍️ [3/3] 자연어 자동화 요구사항 입력", font=ctk.CTkFont(size=12, weight="bold"), text_color="#81c784").pack(side="left")
+        s3_head.pack(fill="x", padx=8, pady=(2, 1))
+        ctk.CTkLabel(s3_head, text="✍️ [3/3] 자연어 자동화 요구사항 (3~4줄)", font=ctk.CTkFont(size=11, weight="bold"), text_color="#81c784").pack(side="left")
 
-        self.txt_prompt = ctk.CTkTextbox(left_f, height=75, font=ctk.CTkFont(size=12))
-        self.txt_prompt.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+        self.txt_prompt = ctk.CTkTextbox(left_f, height=60, font=ctk.CTkFont(size=11))
+        self.txt_prompt.pack(fill="x", padx=8, pady=(0, 4))
         self.txt_prompt.insert(
             "1.0",
             "아이디 입력창에 'admin', 비밀번호에 '1234'를 입력하고 로그인 버튼을 클릭해줘."
@@ -410,7 +436,7 @@ class AIVisionModal(ctk.CTkToplevel):
             fg_color="#00838f", hover_color="#006064", font=ctk.CTkFont(size=13, weight="bold"),
             command=self._start_ai_generation
         )
-        self.btn_generate.pack(fill="x", padx=8, pady=(4, 6))
+        self.btn_generate.pack(fill="x", padx=8, pady=(2, 6))
 
         # ---------------------------------------------------------------------
         # 우측: AI 생성 코드 & 분석 설명 뷰어
@@ -450,6 +476,9 @@ class AIVisionModal(ctk.CTkToplevel):
         )
         btn_copy.pack(side="right")
 
+    # =========================================================================
+    # 엔진 변경 및 모델 목록 갱신
+    # =========================================================================
     def _on_engine_changed(self, choice: str):
         if "Gemini" in choice:
             self.f_ollama.pack_forget()
@@ -458,6 +487,7 @@ class AIVisionModal(ctk.CTkToplevel):
             self.f_gemini.pack_forget()
             self.f_ollama.pack(fill="x")
             self._refresh_ollama_models()
+        self._save_all_configs()
 
     def _refresh_ollama_models(self):
         url = self.ent_ollama_url.get().strip() or "http://localhost:11434"
@@ -470,7 +500,7 @@ class AIVisionModal(ctk.CTkToplevel):
                 self.cbo_ollama_model.set(models[0])
 
     # =========================================================================
-    # [실시간 DOM 수집] 백그라운드 워커 스레드
+    # [실시간 DOM 수집] 활성 브라우저 세션 우선 탐색 및 유형별 탭 분류
     # =========================================================================
     def _start_harvest_dom(self):
         url = self.ent_target_url.get().strip()
@@ -478,12 +508,13 @@ class AIVisionModal(ctk.CTkToplevel):
             messagebox.showwarning("입력 확인", "수집할 대상 웹 URL을 입력해 주십시오.")
             return
 
+        self._save_all_configs()
         self.btn_harvest_dom.configure(text="⏳ DOM 수집 중...", state="disabled")
-        self.lbl_dom_status.configure(text="⏳ 대상 페이지 접속 및 인터랙티브 DOM 렌더링 수집 중...", text_color="#ffb74d")
+        self.lbl_dom_status.configure(text="⏳ 브라우저 세션 탐색 및 조작 가능 객체 수집 중...", text_color="#ffb74d")
 
         def _worker():
             try:
-                res = DOMHarvester.harvest_live_dom(url, timeout_sec=12)
+                res = DOMHarvester.harvest_live_dom(url, timeout_sec=15)
                 self.after(0, lambda r=res: self._on_harvest_success(r))
             except Exception as e:
                 self.after(0, lambda err=str(e): self._on_harvest_error(err))
@@ -492,32 +523,124 @@ class AIVisionModal(ctk.CTkToplevel):
 
     def _on_harvest_success(self, res: Dict[str, Any]):
         self.btn_harvest_dom.configure(text="🌐 실시간 DOM 수집 🔍", state="normal")
-        snippet = res.get("formatted_summary") or res.get("dom_snippet", "")
-        count = res.get("count", 0)
+        catalog = res.get("catalog", {})
+        self.current_catalog = catalog
+        total_count = res.get("count", 0)
         sec = res.get("elapsed_sec", 0)
         engine = res.get("engine", "")
 
-        self.txt_dom_snippet.delete("1.0", "end")
-        self.txt_dom_snippet.insert("1.0", snippet)
-
         self.lbl_dom_status.configure(
-            text=f"✅ {count}개 조작 가능 객체 수집 완료 ({sec}초, {engine})",
+            text=f"✅ 총 {total_count}개 조작 가능 객체 수집 완료 ({sec}초, {engine})",
             text_color="#81c784"
         )
 
+        # 각 탭 내용 비우고 새로 렌더링
+        for sf in self.scroll_frames.values():
+            for w in sf.winfo_children():
+                w.destroy()
+
+        # 1. 텍스트 입력창 렌더링
+        inputs = catalog.get("inputs", [])
+        self._set_tab_title(self.tab_inputs, f"📝 입력창 ({len(inputs)})")
+        for itm in inputs:
+            self._render_element_card(self.scroll_frames["inputs"], itm, icon="📝", default_action="입력")
+
+        # 2. 버튼 렌더링
+        buttons = catalog.get("buttons", [])
+        self._set_tab_title(self.tab_buttons, f"🔘 버튼 ({len(buttons)})")
+        for itm in buttons:
+            self._render_element_card(self.scroll_frames["buttons"], itm, icon="🔘", default_action="클릭")
+
+        # 3. 드롭다운 렌더링
+        selects = catalog.get("selects", [])
+        self._set_tab_title(self.tab_selects, f"🔽 드롭다운 ({len(selects)})")
+        for itm in selects:
+            self._render_element_card(self.scroll_frames["selects"], itm, icon="🔽", default_action="선택")
+
+        # 4. 체크박스 / 라디오 렌더링
+        checks = catalog.get("checks_radios", [])
+        self._set_tab_title(self.tab_checks, f"☑️ 체크/라디오 ({len(checks)})")
+        for itm in checks:
+            self._render_element_card(self.scroll_frames["checks_radios"], itm, icon="☑️", default_action="체크")
+
+        # 5. 그리드 / 테이블 렌더링
+        grids = catalog.get("grids", [])
+        self._set_tab_title(self.tab_grids, f"📊 그리드 ({len(grids)})")
+        for itm in grids:
+            self._render_element_card(self.scroll_frames["grids"], itm, icon="📊", default_action="더블클릭")
+
+        # 6. 링크 / 탭 렌더링
+        links = catalog.get("links", [])
+        self._set_tab_title(self.tab_links, f"📑 링크/탭 ({len(links)})")
+        for itm in links:
+            self._render_element_card(self.scroll_frames["links"], itm, icon="📑", default_action="클릭")
+
+    def _set_tab_title(self, tab, new_title):
+        # CustomTkinter Tabview 탭 라벨 갱신
+        try:
+            for btn in self.tabview_dom._segmented_button._buttons_dict.values():
+                if btn.cget("text").split(" ")[0] == new_title.split(" ")[0]:
+                    btn.configure(text=new_title)
+                    break
+        except Exception:
+            pass
+
+    def _render_element_card(self, parent_frame, itm: Dict[str, Any], icon: str = "🔹", default_action: str = "클릭"):
+        """유형별 탭 내부에 1개 요소 카드 렌더링"""
+        name = itm.get("label") or itm.get("text") or itm.get("type") or "요소"
+        sel = itm.get("selector") or ""
+        code = itm.get("playwrightCode") or ""
+
+        card = ctk.CTkFrame(parent_frame, corner_radius=6, fg_color="#2b2b2b")
+        card.pack(fill="x", pady=2, padx=2)
+
+        top_r = ctk.CTkFrame(card, fg_color="transparent")
+        top_r.pack(fill="x", padx=6, pady=(4, 2))
+
+        ctk.CTkLabel(
+            top_r, text=f"{icon} {name}", font=ctk.CTkFont(size=11, weight="bold"), text_color="#ffffff", anchor="w"
+        ).pack(side="left", fill="x", expand=True)
+
+        btn_pick = ctk.CTkButton(
+            top_r, text="선택", width=45, height=22, font=ctk.CTkFont(size=10, weight="bold"),
+            fg_color="#1f6aa5", hover_color="#144d75",
+            command=lambda: self._select_element(name, sel, code)
+        )
+        btn_pick.pack(side="right", padx=2)
+
+        bot_r = ctk.CTkFrame(card, fg_color="transparent")
+        bot_r.pack(fill="x", padx=6, pady=(0, 4))
+
+        ctk.CTkLabel(
+            bot_r, text=f"셀렉터: {sel}", font=ctk.CTkFont(family="Consolas", size=10), text_color="#64b5f6", anchor="w"
+        ).pack(side="left", fill="x", expand=True)
+
+    def _select_element(self, name: str, sel: str, code: str):
+        """요소 클릭 시 셀렉터 바 즉시 갱신"""
+        self.lbl_selected_sel.delete(0, "end")
+        self.lbl_selected_sel.insert(0, code or f'page.locator("{sel}")')
+
+    def _copy_selected_selector(self):
+        sel_text = self.lbl_selected_sel.get().strip()
+        if sel_text and not sel_text.startswith("("):
+            self.clipboard_clear()
+            self.clipboard_append(sel_text)
+            messagebox.showinfo("복사 완료", "클립보드에 셀렉터 코드가 복사되었습니다!")
+
+    def _inject_selected_into_prompt(self):
+        sel_text = self.lbl_selected_sel.get().strip()
+        if sel_text and not sel_text.startswith("("):
+            self.txt_prompt.insert("end", f"\n- {sel_text}")
+
     def _on_harvest_error(self, err_msg: str):
         self.btn_harvest_dom.configure(text="🌐 실시간 DOM 수집 🔍", state="normal")
-        self.lbl_dom_status.configure(
-            text=f"❌ DOM 수집 실패: {err_msg[:40]}",
-            text_color="#e57373"
-        )
+        self.lbl_dom_status.configure(text=f"❌ DOM 수집 실패: {err_msg[:45]}", text_color="#e57373")
         messagebox.showerror("DOM 수집 오류", f"대상 URL DOM 수집 실패:\n{err_msg}")
 
     # =========================================================================
     # [섹션 1] 클립보드 붙여넣기, 화면 캡처, 이미지 로드
     # =========================================================================
     def _paste_from_clipboard(self):
-        """클립보드 이미지 가져오기 (Win+Shift+S 또는 PrtScn 캡처 후 Ctrl+V)"""
         try:
             clip_data = ImageGrab.grabclipboard()
             if isinstance(clip_data, Image.Image):
@@ -574,7 +697,7 @@ class AIVisionModal(ctk.CTkToplevel):
     def _display_preview_image(self, path: str):
         try:
             pil_img = Image.open(path)
-            pil_img.thumbnail((380, 85))
+            pil_img.thumbnail((380, 75))
             ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
 
             self.lbl_img_preview.configure(image=ctk_img, text="")
@@ -583,7 +706,7 @@ class AIVisionModal(ctk.CTkToplevel):
             self.lbl_img_preview.configure(text=f"미리보기 실패: {ex}")
 
     # =========================================================================
-    # AI 코드 생성 실행 (이미지 + URL + 실시간 DOM 증거 + 프롬프트 4박자 결합)
+    # AI 코드 생성 실행 (이미지 + URL + 유형별 DOM 카탈로그 + 프롬프트)
     # =========================================================================
     def _start_ai_generation(self):
         if not self.current_image_path or not os.path.exists(self.current_image_path):
@@ -596,8 +719,10 @@ class AIVisionModal(ctk.CTkToplevel):
             return
 
         target_url = self.ent_target_url.get().strip()
-        dom_snippet = self.txt_dom_snippet.get("1.0", "end").strip()
+        catalog_summary = DOMHarvester.format_catalog_to_text(self.current_catalog)
         engine_choice = self.seg_engine.get()
+
+        self._save_all_configs()
 
         if "Gemini" in engine_choice:
             api_key = self.ent_api_key.get().strip()
@@ -607,7 +732,7 @@ class AIVisionModal(ctk.CTkToplevel):
             model = self.cbo_gemini_model.get()
             self.btn_generate.configure(text="⏳ Gemini 증거 기반 분석 중... (약 1~2초)", state="disabled")
             self.txt_result_code.delete("1.0", "end")
-            self.txt_result_code.insert("1.0", f"// 🤖 Google Gemini ({model})에 이미지와 URL, 실시간 DOM 증거를 대조 분석 중입니다...\n")
+            self.txt_result_code.insert("1.0", f"// 🤖 Google Gemini ({model})에 이미지와 URL, 수집된 UI 객체 카탈로그를 대조 분석 중입니다...\n")
 
             def _worker_gemini():
                 try:
@@ -617,7 +742,7 @@ class AIVisionModal(ctk.CTkToplevel):
                         user_prompt=prompt,
                         target_url=target_url,
                         model=model,
-                        page_html=dom_snippet
+                        page_html=catalog_summary
                     )
                     self.after(0, lambda c=code, f=full_text: self._on_generation_success(c, f, "Gemini"))
                 except Exception as e:
@@ -630,7 +755,7 @@ class AIVisionModal(ctk.CTkToplevel):
             model = self.cbo_ollama_model.get()
             self.btn_generate.configure(text="⏳ Ollama 증거 기반 비전 추론 중... (약 3~6초)", state="disabled")
             self.txt_result_code.delete("1.0", "end")
-            self.txt_result_code.insert("1.0", f"// 🦙 Local Ollama ({model})에서 이미지와 실시간 DOM 증거를 로컬 GPU로 추론 중입니다...\n// (100% 무료 / 사내 보안 유지 / 외부 유출 없음)\n")
+            self.txt_result_code.insert("1.0", f"// 🦙 Local Ollama ({model})에서 이미지와 수집된 UI 객체 카탈로그를 로컬 GPU로 추론 중입니다...\n// (100% 무료 / 사내 보안 유지 / 외부 유출 없음)\n")
 
             def _worker_ollama():
                 try:
@@ -640,7 +765,7 @@ class AIVisionModal(ctk.CTkToplevel):
                         image_path=self.current_image_path,
                         user_prompt=prompt,
                         target_url=target_url,
-                        page_html=dom_snippet
+                        page_html=catalog_summary
                     )
                     self.after(0, lambda c=code, f=full_text: self._on_generation_success(c, f, f"Ollama ({model})"))
                 except Exception as e:
@@ -652,7 +777,7 @@ class AIVisionModal(ctk.CTkToplevel):
         self.btn_generate.configure(text="⚡ 증거 기반 AI 코드 생성 (Generate RPA Code)", state="normal")
         self.txt_result_code.delete("1.0", "end")
         self.txt_result_code.insert("1.0", code)
-        messagebox.showinfo("생성 완료", f"✅ {engine_name} 엔진이 실시간 DOM 증거를 기반으로 100% 무결점 코드를 생성하였습니다!")
+        messagebox.showinfo("생성 완료", f"✅ {engine_name} 엔진이 수집된 UI 객체 카탈로그를 기반으로 100% 무결점 코드를 생성하였습니다!")
 
     def _on_generation_error(self, err_msg: str):
         self.btn_generate.configure(text="⚡ 증거 기반 AI 코드 생성 (Generate RPA Code)", state="normal")
@@ -704,31 +829,33 @@ class AIVisionModal(ctk.CTkToplevel):
         else:
             self.ent_api_key.configure(show="*")
 
+    # =========================================================================
+    # 설정 자동 영구 저장 및 복원 (URL, AI 엔진, 모델, API Key)
+    # =========================================================================
     def _load_saved_configs(self):
         k = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
         ollama_u = "http://localhost:11434"
         target_u = "http://175.119.156.105:3000/contract/list"
+        last_engine = "☁️ Google Gemini (초고속)"
+        last_gemini_model = "gemini-2.5-flash"
+        last_ollama_model = "qwen3-vl:4b"
 
-        if os.path.exists(self._CONFIG_FILE):
-            try:
-                with open(self._CONFIG_FILE, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-                    k = k or cfg.get("gemini_api_key", "")
-                    ollama_u = cfg.get("ollama_url", ollama_u)
-                    target_u = cfg.get("target_url", target_u)
-            except Exception:
-                pass
-
-        ubus_cfg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "UBUS_contract", "config.json")
-        if os.path.exists(ubus_cfg):
-            try:
-                with open(ubus_cfg, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-                    k = k or cfg.get("gemini_api_key", "")
-                    ollama_u = cfg.get("ollama_url", ollama_u)
-                    target_u = cfg.get("erp_url", target_u)
-            except Exception:
-                pass
+        for cfg_path in [
+            self._CONFIG_FILE,
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "UBUS_contract", "config.json")
+        ]:
+            if os.path.exists(cfg_path):
+                try:
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                        k = k or cfg.get("gemini_api_key", "")
+                        ollama_u = cfg.get("ollama_url", ollama_u)
+                        target_u = cfg.get("target_url") or cfg.get("erp_url") or target_u
+                        last_engine = cfg.get("last_ai_engine", last_engine)
+                        last_gemini_model = cfg.get("last_gemini_model", last_gemini_model)
+                        last_ollama_model = cfg.get("last_ollama_model", last_ollama_model)
+                except Exception:
+                    pass
 
         if k:
             self.ent_api_key.insert(0, k)
@@ -739,24 +866,41 @@ class AIVisionModal(ctk.CTkToplevel):
             self.ent_target_url.delete(0, "end")
             self.ent_target_url.insert(0, target_u)
 
-    def _save_api_key(self):
-        k = self.ent_api_key.get().strip()
-        try:
-            for cfg_path in [
-                self._CONFIG_FILE,
-                os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "UBUS_contract", "config.json")
-            ]:
+        if last_engine:
+            self.seg_engine.set(last_engine)
+            self._on_engine_changed(last_engine)
+
+        if last_gemini_model in ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"]:
+            self.cbo_gemini_model.set(last_gemini_model)
+
+        if last_ollama_model:
+            self.cbo_ollama_model.set(last_ollama_model)
+
+    def _save_all_configs(self):
+        """URL, 엔진, 모델, API Key 일괄 영구 저장"""
+        data_to_save = {
+            "gemini_api_key": self.ent_api_key.get().strip(),
+            "ollama_url": self.ent_ollama_url.get().strip(),
+            "target_url": self.ent_target_url.get().strip(),
+            "last_ai_engine": self.seg_engine.get(),
+            "last_gemini_model": self.cbo_gemini_model.get(),
+            "last_ollama_model": self.cbo_ollama_model.get()
+        }
+
+        for cfg_path in [
+            self._CONFIG_FILE,
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "UBUS_contract", "config.json")
+        ]:
+            try:
                 data = {}
                 if os.path.exists(cfg_path):
                     with open(cfg_path, "r", encoding="utf-8") as f:
                         data = json.load(f)
-                data["gemini_api_key"] = k
+                data.update(data_to_save)
                 with open(cfg_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
-
-            messagebox.showinfo("저장 완료", "Gemini API Key가 안전하게 저장되었습니다!")
-        except Exception as e:
-            messagebox.showerror("저장 오류", f"Key 저장 실패: {e}")
+            except Exception:
+                pass
 
 
 def open_ai_vision_generator(parent, on_insert: Optional[Callable[[str], None]] = None,
