@@ -464,6 +464,24 @@ class AIVisionFrame(ctk.CTkFrame):
         )
         self.lbl_dom_status.pack(fill="x", padx=8, pady=(6, 2))
 
+        # 객체 검색 필터 바
+        f_dom_filter = ctk.CTkFrame(col0_f, fg_color="transparent")
+        f_dom_filter.pack(fill="x", padx=8, pady=(0, 4))
+
+        self.ent_dom_filter = ctk.CTkEntry(
+            f_dom_filter, height=26, font=ctk.CTkFont(size=11),
+            placeholder_text="객체 검색 (텍스트, 경로, 셀렉터)"
+        )
+        self.ent_dom_filter.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self.ent_dom_filter.bind("<KeyRelease>", lambda e: self._filter_dom_catalog())
+
+        self.btn_clear_dom_filter = ctk.CTkButton(
+            f_dom_filter, text="✕", width=26, height=26, font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color="#333333", hover_color="#444444",
+            command=self._clear_dom_filter
+        )
+        self.btn_clear_dom_filter.pack(side="right")
+
         self.tabview_dom = ctk.CTkTabview(col0_f)
         self.tabview_dom.pack(fill="both", expand=True, padx=8, pady=(0, 4))
         
@@ -860,6 +878,70 @@ class AIVisionFrame(ctk.CTkFrame):
         )
         messagebox.showinfo("바로가기 생성 완료", msg)
 
+    def _clear_dom_filter(self):
+        """객체 검색 필터 초기화"""
+        self.ent_dom_filter.delete(0, "end")
+        self._filter_dom_catalog()
+
+    def _filter_dom_catalog(self):
+        """검색어 기반 DOM 객체 목록 실시간 필터링 및 렌더링"""
+        query = self.ent_dom_filter.get().strip().lower()
+        self._render_dom_catalog_view(query)
+
+    def _render_dom_catalog_view(self, query: str = ""):
+        """현재 수집된 DOM 카탈로그를 검색어(query)에 맞게 렌더링"""
+        catalog = self.current_catalog or {}
+
+        for sf in self.scroll_frames.values():
+            for w in sf.winfo_children():
+                w.destroy()
+
+        def _matches(item: dict) -> bool:
+            if not query:
+                return True
+            fields = [
+                item.get("label", ""),
+                item.get("text", ""),
+                item.get("path", ""),
+                item.get("selector", ""),
+                item.get("type", ""),
+                item.get("element_type", ""),
+                item.get("playwrightCode", ""),
+                " ".join(item.get("options", [])) if isinstance(item.get("options"), list) else ""
+            ]
+            combined = " ".join(fields).lower()
+            return query in combined
+
+        cat_defs = [
+            ("inputs", self.tab_inputs, "입력창", "[입력]"),
+            ("buttons", self.tab_buttons, "버튼", "[버튼]"),
+            ("selects", self.tab_selects, "드롭다운", "[선택]"),
+            ("checks_radios", self.tab_checks, "체크/라디오", "[체크]"),
+            ("grids", self.tab_grids, "그리드", "[그리드]"),
+            ("links", self.tab_links, "링크", "[링크]"),
+        ]
+
+        for key, tab_obj, title_prefix, icon in cat_defs:
+            all_items = catalog.get(key, [])
+            filtered_items = [itm for itm in all_items if _matches(itm)]
+            sf = self.scroll_frames[key]
+
+            # 탭 타이틀 카운트 표시 (필터 시 "버튼 (3/113)" 또는 "버튼 (113)")
+            if query and len(filtered_items) != len(all_items):
+                tab_title = f"{title_prefix} ({len(filtered_items)}/{len(all_items)})"
+            else:
+                tab_title = f"{title_prefix} ({len(all_items)})"
+            self._set_tab_title(tab_obj, tab_title)
+
+            if not filtered_items and all_items and query:
+                ctk.CTkLabel(
+                    sf, text=f"'{query}' 일치 항목 없음",
+                    font=ctk.CTkFont(size=11), text_color="#666666"
+                ).pack(pady=14)
+            else:
+                for itm in filtered_items:
+                    self._render_element_card(sf, itm, icon=icon)
+
     def _on_harvest_success(self, res: Dict[str, Any]):
         self.btn_harvest_dom.configure(text="DOM 수집", state="normal")
         catalog = res.get("catalog", {})
@@ -871,40 +953,7 @@ class AIVisionFrame(ctk.CTkFrame):
             text=f"조작 객체 목록 ({total_count}개 수집됨, {sec}초)",
             text_color="#81c784"
         )
-
-        for sf in self.scroll_frames.values():
-            for w in sf.winfo_children():
-                w.destroy()
-
-        inputs = catalog.get("inputs", [])
-        self._set_tab_title(self.tab_inputs, f"입력창 ({len(inputs)})")
-        for itm in inputs:
-            self._render_element_card(self.scroll_frames["inputs"], itm, icon="[입력]")
-
-        buttons = catalog.get("buttons", [])
-        self._set_tab_title(self.tab_buttons, f"버튼 ({len(buttons)})")
-        for itm in buttons:
-            self._render_element_card(self.scroll_frames["buttons"], itm, icon="[버튼]")
-
-        selects = catalog.get("selects", [])
-        self._set_tab_title(self.tab_selects, f"드롭다운 ({len(selects)})")
-        for itm in selects:
-            self._render_element_card(self.scroll_frames["selects"], itm, icon="[선택]")
-
-        checks = catalog.get("checks_radios", [])
-        self._set_tab_title(self.tab_checks, f"체크/라디오 ({len(checks)})")
-        for itm in checks:
-            self._render_element_card(self.scroll_frames["checks_radios"], itm, icon="[체크]")
-
-        grids = catalog.get("grids", [])
-        self._set_tab_title(self.tab_grids, f"그리드 ({len(grids)})")
-        for itm in grids:
-            self._render_element_card(self.scroll_frames["grids"], itm, icon="[그리드]")
-
-        links = catalog.get("links", [])
-        self._set_tab_title(self.tab_links, f"링크 ({len(links)})")
-        for itm in links:
-            self._render_element_card(self.scroll_frames["links"], itm, icon="[링크]")
+        self._filter_dom_catalog()
 
     def _set_tab_title(self, tab, new_title):
         try:
