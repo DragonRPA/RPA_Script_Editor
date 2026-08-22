@@ -2483,7 +2483,17 @@ class AIVisionFrame(ctk.CTkFrame):
         self.btn_generate.configure(text="코드 생성", state="normal")
         self.txt_result_code.delete("1.0", "end")
         self.txt_result_code.insert("1.0", f"[오류]\n{err_msg}")
-        messagebox.showerror("오류", f"코드 생성 실패:\n{err_msg}")
+
+        # Local Ollama 서버 미실행(WinError 10061) 친절 안내
+        if "10061" in err_msg or "Failed to establish a new connection" in err_msg or "Connection refused" in err_msg:
+            friendly_msg = (
+                "Local Ollama 서버(http://localhost:11434)에 연결할 수 없습니다.\n\n"
+                "• 로컬 AI를 사용하려면: Windows에서 Ollama를 실행하거나 'ollama serve'를 실행하세요.\n"
+                "• 클라우드 AI를 사용하려면: 상단 AI 엔진에서 [Google Gemini]를 선택하세요."
+            )
+            messagebox.showerror("Local Ollama 연결 실패", friendly_msg)
+        else:
+            messagebox.showerror("오류", f"코드 생성 실패:\n{err_msg}")
 
     # =========================================================================
     # 액션 핸들러
