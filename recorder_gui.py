@@ -20,6 +20,7 @@ from snippets_library import SNIPPET_CATEGORIES
 from playwright_parser import parse_advanced_python_to_scenario
 from neon_db import NeonDBManager
 from ai_vision_agent import AIVisionFrame, open_ai_vision_generator
+from db_explorer_frame import DBExplorerFrame
 
 
 ctk.set_appearance_mode("Dark")
@@ -142,10 +143,12 @@ class RecorderGUI(ctk.CTk):
         self.tab_vision = self.tabview.add("AI 비전 코드 생성")
         self.tab_script = self.tabview.add("파이썬 스크립트 에디터")
         self.tab_bot = self.tabview.add("봇 에디터")
+        self.tab_db = self.tabview.add("DB 관리")
 
         self._build_vision_tab()
         self._build_script_tab()
         self._build_bot_tab()
+        self._build_db_tab()
 
     # =========================================================================
     # 탭 1: AI 비전 코드 생성
@@ -478,6 +481,14 @@ class RecorderGUI(ctk.CTk):
         self.scroll_db_modules.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
         self._refresh_db_module_list()
+
+    # =========================================================================
+    # 탭 4: DB 관리 (Neon PostgreSQL 탐색기 & DDL 실행기)
+    # =========================================================================
+    def _build_db_tab(self):
+        """DB 탐색기 및 DDL 패치 실행기 탭 빌드"""
+        self.db_explorer = DBExplorerFrame(self.tab_db, db_manager=self.db_manager)
+        self.db_explorer.pack(fill="both", expand=True, padx=2, pady=2)
 
     # =========================================================================
     # 봇 파이프라인 카드 렌더링 & 제어 로직

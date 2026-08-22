@@ -6,7 +6,7 @@ Neon DB 연결, 스키마 자동 초기화, RPA 실행 이력 및 모듈형 스�
 import os
 import time
 import json
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
@@ -16,6 +16,17 @@ class NeonDBManager:
 
     def __init__(self, connection_url: Optional[str] = None):
         self.connection_url = connection_url or os.environ.get("DATABASE_URL", "")
+        if not self.connection_url:
+            # Fallback to local config files if available
+            try:
+                cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recorder_config.json")
+                if os.path.exists(cfg_path):
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        self.connection_url = json.load(f).get("neon_database_url", "")
+            except Exception:
+                pass
+        if not self.connection_url:
+            self.connection_url = "postgresql://neondb_owner:npg_W0LzlYBckKp1@ep-small-firefly-az3rp5ve.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
         self._conn = None
 
     def connect(self):
@@ -831,3 +842,132 @@ def robust_click(page, css_selector: str, uia_auto_id: str,
             "keep_elements": self.list_keep_elements(project_id),
             "tasks":         self.list_tasks(project_id),
         }
+
+    # =========================================================================
+    # DB 탐색기 & DDL 패치 실행기 (Introspection & Raw SQL)
+    # =========================================================================
+    def list_all_tables_with_counts(self) -> List[Dict[str, Any]]:
+        """모든 public 테이블 목록 및 행 수 조회"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    ORDER BY table_name;
+                """)
+                tables = [r["table_name"] for r in cur.fetchall()]
+                
+                result = []
+                for tbl in tables:
+                    try:
+                        cur.execute(f'SELECT count(*) as cnt FROM "{tbl}";')
+                        cnt = cur.fetchone()["cnt"]
+                    except Exception:
+                        cnt = 0
+                    result.append({"table_name": tbl, "row_count": cnt})
+                return result
+        finally:
+            conn.close()
+
+    def get_table_schema(self, table_name: str) -> List[Dict[str, Any]]:
+        """테이블 컬럼 메타데이터 및 PK 여부 조회"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT 
+                        c.column_name,
+                        c.data_type,
+                        c.character_maximum_length,
+                        c.is_nullable,
+                        c.column_default,
+                        c.ordinal_position,
+                        CASE WHEN pk.column_name IS NOT NULL THEN 'PK' ELSE '' END as key_type
+                    FROM information_schema.columns c
+                    LEFT JOIN (
+                        SELECT ku.column_name, ku.table_name
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage ku
+                            ON tc.constraint_name = ku.constraint_name
+                            AND tc.table_schema = ku.table_schema
+                        WHERE tc.constraint_type = 'PRIMARY KEY'
+                          AND tc.table_schema = 'public'
+                    ) pk ON pk.table_name = c.table_name AND pk.column_name = c.column_name
+                    WHERE c.table_schema = 'public' AND c.table_name = %s
+                    ORDER BY c.ordinal_position;
+                """, (table_name,))
+                return [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def get_table_data(self, table_name: str, limit: Optional[int] = 100) -> Tuple[List[str], List[Dict[str, Any]], int]:
+        """테이블 데이터 조회 (컬럼 목록, 행 데이터, 총 행 수)"""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                # 총 행 수
+                cur.execute(f'SELECT count(*) as cnt FROM "{table_name}";')
+                total_cnt = cur.fetchone()["cnt"]
+
+                # 데이터 조회
+                if limit is not None and limit > 0:
+                    cur.execute(f'SELECT * FROM "{table_name}" LIMIT %s;', (limit,))
+                else:
+                    cur.execute(f'SELECT * FROM "{table_name}";')
+                
+                rows = [dict(r) for r in cur.fetchall()]
+                columns = [desc[0] for desc in cur.description] if cur.description else []
+                return columns, rows, total_cnt
+        finally:
+            conn.close()
+
+    def execute_custom_sql(self, sql: str) -> Dict[str, Any]:
+        """임의의 SQL (SELECT, INSERT, UPDATE, DELETE, DDL: CREATE/ALTER/DROP) 실행"""
+        conn = self.connect()
+        start_t = time.time()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                elapsed_ms = int((time.time() - start_t) * 1000)
+                status_msg = cur.statusmessage or "OK"
+                
+                # SELECT 또는 RETURNING 쿼리인 경우 데이터 추출
+                if cur.description:
+                    columns = [desc[0] for desc in cur.description]
+                    rows = [dict(r) for r in cur.fetchall()]
+                    conn.commit()
+                    return {
+                        "success": True,
+                        "query_type": "SELECT",
+                        "columns": columns,
+                        "rows": rows,
+                        "rowcount": len(rows),
+                        "status": status_msg,
+                        "elapsed_ms": elapsed_ms
+                    }
+                else:
+                    rowcount = cur.rowcount
+                    conn.commit()
+                    return {
+                        "success": True,
+                        "query_type": "DDL/DML",
+                        "columns": [],
+                        "rows": [],
+                        "rowcount": rowcount,
+                        "status": status_msg,
+                        "elapsed_ms": elapsed_ms
+                    }
+        except Exception as e:
+            conn.rollback()
+            elapsed_ms = int((time.time() - start_t) * 1000)
+            return {
+                "success": False,
+                "query_type": "ERROR",
+                "error": str(e),
+                "elapsed_ms": elapsed_ms
+            }
+        finally:
+            conn.close()
+
