@@ -1206,17 +1206,18 @@ class AIVisionFrame(ctk.CTkFrame):
             new_name = ent.get().strip()
             if new_name:
                 item["var_name"] = new_name
-                # DB 업데이트
-                if getattr(self, "db", None):
+                # DB 업데이트 (PK ID 기반 순수 UPDATE 수행, 절대 INSERT 하지 않음)
+                if getattr(self, "db", None) and item.get("id"):
                     try:
-                        if item.get("keep_type") == "target_url" and item.get("id"):
-                            # target_url인 경우 rpa_targets의 label 수정
-                            self.db.update_target(item["id"], label=new_name)
+                        rec_id = item["id"]
+                        ktype = item.get("keep_type", "element")
+                        # 1. rpa_keep_elements 테이블 업데이트
+                        self.db.update_keep_element_var_name(rec_id, new_name)
+                        # 2. target_url인 경우 rpa_targets 라벨도 함께 업데이트
+                        if ktype == "target_url":
+                            self.db.update_target(rec_id, label=new_name)
                             item["label"] = new_name
                             self._refresh_target_urls()
-                        elif item.get("id"):
-                            # rpa_keep_elements의 var_name 수정
-                            self.db.update_keep_element_var_name(item["id"], new_name)
                     except Exception as e:
                         print(f"DB Keep 수정 에러: {e}")
                 self._render_keep_list()
