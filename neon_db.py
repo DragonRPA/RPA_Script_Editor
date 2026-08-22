@@ -523,6 +523,13 @@ def robust_click(page, css_selector: str, uia_auto_id: str,
                         keep_element_id INTEGER REFERENCES rpa_keep_elements(id) ON DELETE CASCADE,
                         PRIMARY KEY (task_id, keep_element_id)
                     );
+
+                    -- data_column Keep 지원 컬럼 추가 (멱등성 보장)
+                    ALTER TABLE rpa_keep_elements
+                        ADD COLUMN IF NOT EXISTS keep_type    VARCHAR(20) DEFAULT 'element',
+                        ADD COLUMN IF NOT EXISTS column_name  VARCHAR(200),
+                        ADD COLUMN IF NOT EXISTS data_type    VARCHAR(30),
+                        ADD COLUMN IF NOT EXISTS source_file  TEXT;
                 """)
                 conn.commit()
                 return True
@@ -644,16 +651,23 @@ def robust_click(page, css_selector: str, uia_auto_id: str,
 
     def save_keep_element(self, project_id: int, var_name: str, selector: str,
                           label: str = "", element_type: str = "",
-                          path: str = "", target_id: Optional[int] = None) -> int:
-        """Keep 요소 저장 → element_id 반환"""
+                          path: str = "", target_id: Optional[int] = None,
+                          keep_type: str = "element", column_name: str = "",
+                          data_type: str = "", source_file: str = "") -> int:
+        """Keep 요소 저장 → element_id 반환.
+        keep_type='element'     : DOM/UI 요소 (selector 사용)
+        keep_type='data_column' : 데이터 파일 컬럼 (column_name 사용)
+        """
         conn = self.connect()
         try:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO rpa_keep_elements
-                        (project_id, target_id, var_name, label, selector, element_type, path)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id;
-                """, (project_id, target_id, var_name, label, selector, element_type, path))
+                        (project_id, target_id, var_name, label, selector, element_type, path,
+                         keep_type, column_name, data_type, source_file)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                """, (project_id, target_id, var_name, label, selector, element_type, path,
+                      keep_type, column_name, data_type, source_file))
                 eid = cur.fetchone()["id"]
                 conn.commit()
                 return eid
